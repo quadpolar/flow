@@ -116,18 +116,17 @@
     <div id="grip">controls</div>
 
     <div class="presets">
-      <button data-p="smoke">SMOKE</button>
-      <button data-p="tunnel">TUNNEL</button>
-      <button data-p="oil">OIL</button>
+      <button data-p="grain">GRAIN</button>
+      <button data-p="ember">EMBER</button>
       <button data-p="ghost">GHOST</button>
-      <button data-p="shatter">SHATTER</button>
-      <button data-p="body">BODY</button>
+      <button data-p="ribbon">RIBBON</button>
+      <button data-p="storm">STORM</button>
     </div>
 
     <div class="toggles">
       <button id="tMirror" class="on">MIRROR</button>
-      <button id="tParticles" class="on">PARTICLES</button>
-      <button id="tMesh" class="on">MESH</button>
+      <button id="tParticles" class="on">LINES</button>
+      <button id="tMesh">WASH</button>
     <button id="tMask">ME ONLY</button>
     </div>
 
@@ -149,21 +148,21 @@ var ctx = view.getContext("2d");
 /* ---------- parameters. every one is read fresh each frame, so a slider
    changes the piece immediately with no restart ---------- */
 var P = {
-  feedback: 0.90,   // how much of the last frame is kept
-  zoom:     1.010,  // scale applied to the feedback each frame
-  spin:     0.20,   // degrees of rotation on the feedback
-  drift:    0.30,   // how far the feedback is pushed by the flow
-  warp:     34,     // mesh displacement in px per unit of flow
-  chroma:   11,      // rgb channel separation
-  glow:     0.42,   // brightness of the ink laid down
-  hue:      0.12,   // hue rotation per second
+  feedback: 0.82,   // how much of the last frame is kept
+  zoom:     1.002,  // scale applied to the feedback each frame
+  spin:     0.05,   // degrees of rotation on the feedback
+  drift:    0.15,   // how far the feedback is pushed by the flow
+  warp:     18,     // mesh displacement in px per unit of flow
+  chroma:   6,      // rgb channel separation
+  glow:     0.75,   // brightness of the ink laid down
+  hue:      0.06,   // hue rotation per second
   sat:      0.85,
-  particles: 150,
-  trail:    0.40,   // particle streak length
+  particles: 420,
+  trail:    0.62,   // particle streak length
   thresh:   0.06,   // motion below this is ignored
   edge:     1.2,    // how much the outline of you is favoured
-  body:     1.0,    // how strongly your silhouette is drawn
-  bleed:    0.055,  // stops light accumulating to white
+  body:     0.55,    // how strongly your silhouette is drawn
+  bleed:    0.10,  // stops light accumulating to white
 };
 
 var SPECS = [
@@ -176,8 +175,8 @@ var SPECS = [
   ["glow",      "ink",       0,    1.6,   0.05],
   ["hue",       "hue drift", -2,   2,     0.05],
   ["sat",       "saturation",0,    1,     0.05],
-  ["particles", "particles", 0,    900,   10],
-  ["trail",     "streak",    0,    1,     0.05],
+  ["particles", "lines",     0,    900,   10],
+  ["trail",     "line length",0,   1,     0.05],
   ["thresh",    "threshold", 0,    0.3,   0.005],
   ["edge",      "edge bias", 0,    3,     0.05],
   ["body",      "your outline", 0, 1.5,   0.05],
@@ -185,27 +184,25 @@ var SPECS = [
 ];
 
 var PRESETS = {
-  smoke:   { feedback:.93, zoom:1.006, spin:.15, drift:1.4, warp:26,
-             chroma:4,  glow:.5,  hue:.2,  sat:.7,  particles:420, trail:.75,
-             thresh:.05, edge:1.4 , body:1.0 , bleed:0.06 },
-  tunnel:  { feedback:.96, zoom:1.032, spin:1.1, drift:.3,  warp:14,
-             chroma:12, glow:.75, hue:.9,  sat:1,   particles:120, trail:.4,
-             thresh:.07, edge:0.6 , body:0.6 , bleed:0.045 },
-  oil:     { feedback:.88, zoom:1.002, spin:-.4, drift:2.2, warp:96,
-             chroma:26, glow:.6,  hue:1.4, sat:1,   particles:0,   trail:.5,
-             thresh:.04, edge:2.2 , body:1.1 , bleed:0.07 },
-  ghost:   { feedback:.985,zoom:1.000, spin:0,   drift:.1,  warp:8,
-             chroma:2,  glow:.32, hue:.06, sat:.35, particles:80,  trail:.9,
-             thresh:.09, edge:1.8 , body:1.2 , bleed:0.03 },
-  body:    { feedback:.90, zoom:1.004, spin:.1,  drift:.15, warp:20,
-             chroma:6,  glow:.4,  hue:.08, sat:.8,  particles:110, trail:.35,
-             thresh:.05, edge:2.6, body:1.3 , bleed:0.055 },
-  shatter: { feedback:.72, zoom:0.985, spin:2.4, drift:2.6, warp:128,
-             chroma:34, glow:1.15,hue:-1.2,sat:1,   particles:760, trail:.25,
-             thresh:.03, edge:0.8 , body:0.5 , bleed:0.12 },
+  grain:   { feedback:.82, zoom:1.002, spin:.05, drift:.15, warp:14,
+             chroma:6,  glow:.8,  hue:.05, sat:.55, particles:520, trail:.7,
+             thresh:.05, edge:1.2, body:.45, bleed:.10 },
+  ember:   { feedback:.88, zoom:1.004, spin:.1,  drift:.3,  warp:30,
+             chroma:10, glow:.9,  hue:.02, sat:1,   particles:460, trail:.8,
+             thresh:.04, edge:1.6, body:.6,  bleed:.07 },
+  ghost:   { feedback:.94, zoom:1.001, spin:0,   drift:.08, warp:8,
+             chroma:3,  glow:.45, hue:.03, sat:.25, particles:300, trail:.9,
+             thresh:.07, edge:1.8, body:.35, bleed:.05 },
+  ribbon:  { feedback:.70, zoom:1.000, spin:0,   drift:.1,  warp:22,
+             chroma:8,  glow:1.1, hue:.3,  sat:.9,  particles:260, trail:1,
+             thresh:.05, edge:1.0, body:.5,  bleed:.16 },
+  storm:   { feedback:.86, zoom:1.008, spin:.5,  drift:1.1, warp:70,
+             chroma:20, glow:.95, hue:.6,  sat:1,   particles:640, trail:.45,
+             thresh:.03, edge:.8,  body:.7,  bleed:.09 },
 };
 
-var mirror = true, useParticles = true, useMesh = true, useMask = false;
+
+var mirror = true, useParticles = true, useMesh = false, useMask = false;
 
 /* ---------- build the sliders ---------- */
 var wrap = document.getElementById("sliders");
@@ -301,6 +298,76 @@ sil.width = SILW; sil.height = SILH;
 var silctx = sil.getContext("2d");
 var silImg = silctx.createImageData(SILW, SILH);
 var silReady = false;
+/* ---------- streamline field ----------
+   the references are all flow fields: thousands of thin curves following the
+   contours of a face. that needs a SMOOTH scalar field, not a hard mask —
+   the contour direction is perpendicular to the gradient, and a hard edge
+   gives a gradient that is zero everywhere except one pixel. so the mask is
+   blurred heavily, sampled bilinearly, and combined with the camera's own
+   luminance so the interior has structure too. */
+var FW = 96, FH = 72;
+var fieldA = new Float32Array(FW * FH);
+var fieldB = new Float32Array(FW * FH);
+
+function buildField(arr, w, h, lumaSrc) {
+  // mask, plus luminance inside it so the face has internal contours
+  for (var y = 0; y < FH; y++) {
+    var ry = Math.floor(y * h / FH);
+    for (var x = 0; x < FW; x++) {
+      var rx = Math.floor(x * w / FW);
+      var on = arr[ry * w + rx] !== 0 ? 1 : 0;
+      var l = lumaSrc ? lumaSrc[(y * FW + x)] : 0;
+      fieldA[y * FW + x] = on * (0.55 + l * 0.9);
+    }
+  }
+  // heavy blur: a sharp edge has no usable gradient
+  for (var pass = 0; pass < 5; pass++) {
+    for (var y2 = 1; y2 < FH - 1; y2++) {
+      for (var x2 = 1; x2 < FW - 1; x2++) {
+        var i = y2 * FW + x2;
+        fieldB[i] = (fieldA[i] * 4 + fieldA[i - 1] + fieldA[i + 1] +
+                     fieldA[i - FW] + fieldA[i + FW]) / 8;
+      }
+    }
+    var tmp = fieldA; fieldA = fieldB; fieldB = tmp;
+  }
+}
+
+function fsamp(x, y) {
+  x = Math.max(2, Math.min(FW - 3, x));
+  y = Math.max(2, Math.min(FH - 3, y));
+  var x0 = x | 0, y0 = y | 0, fx = x - x0, fy = y - y0;
+  var i = y0 * FW + x0;
+  return fieldA[i] * (1 - fx) * (1 - fy) + fieldA[i + 1] * fx * (1 - fy) +
+         fieldA[i + FW] * (1 - fx) * fy + fieldA[i + FW + 1] * fx * fy;
+}
+
+/* the contour direction: perpendicular to the gradient */
+function contourAt(x, y) {
+  var d = 1.5;
+  var gx = fsamp(x + d, y) - fsamp(x - d, y);
+  var gy = fsamp(x, y + d) - fsamp(x, y - d);
+  var m = Math.hypot(gx, gy);
+  if (m < 1e-4) return null;
+  return { x: -gy / m, y: gx / m, m: m };
+}
+
+/* luminance of the camera at field resolution, so the interior of the face
+   carries contours rather than being flat */
+var lumaField = new Float32Array(FW * FH);
+function buildLuma() {
+  var d = sctx.getImageData(0, 0, SW, SH).data;
+  for (var y = 0; y < FH; y++) {
+    var ry = Math.floor(y * SH / FH);
+    for (var x = 0; x < FW; x++) {
+      var rx = Math.floor(x * SW / FW);
+      var i = (ry * SW + rx) * 4;
+      lumaField[y * FW + x] =
+        (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) / 255;
+    }
+  }
+}
+
 var rim = document.createElement("canvas");
 rim.width = SILW; rim.height = SILH;
 var rctx = rim.getContext("2d");
@@ -382,6 +449,8 @@ function updateMask(tms) {
     }
     silctx.putImageData(silImg, 0, 0);
     silReady = true;
+    buildLuma();
+    buildField(arr, w, h, lumaField);
 
     cat.close();
   } catch (e) { /* a dropped frame is not worth stopping for */ }
@@ -475,14 +544,30 @@ function sampleFlow(u, v) {
   return { x: fx[i], y: fy[i], m: fm[i] };
 }
 
-/* ---------- particles ---------- */
-var parts = [];
-function seedParticles(n, W, H) {
-  while (parts.length < n) {
-    parts.push({ x: Math.random() * W, y: Math.random() * H,
-                 vx: 0, vy: 0, life: Math.random() });
+/* ---------- streamline tracers ----------
+   each tracer walks along the contour field leaving a thin trail, then
+   respawns. thousands of short curves following the same field is what
+   produces the woodgrain look in the references. */
+var tracers = [];
+function seedTracers(n) {
+  while (tracers.length < n) {
+    tracers.push({ x: Math.random() * FW, y: Math.random() * FH,
+                   age: Math.random() * 90, life: 40 + Math.random() * 70 });
   }
-  if (parts.length > n) parts.length = n;
+  if (tracers.length > n) tracers.length = n;
+}
+function respawn(t) {
+  // prefer to start on the subject, where the field has structure
+  for (var i = 0; i < 8; i++) {
+    var x = Math.random() * FW, y = Math.random() * FH;
+    if (fieldA[(y | 0) * FW + (x | 0)] > 0.25) {
+      t.x = x; t.y = y; t.age = 0;
+      t.life = 40 + Math.random() * 70;
+      return;
+    }
+  }
+  t.x = Math.random() * FW; t.y = Math.random() * FH;
+  t.age = 0; t.life = 30 + Math.random() * 50;
 }
 
 /* ---------- render ---------- */
@@ -562,126 +647,97 @@ function frame(t) {
   /* 2. mesh — the video drawn as a grid of cells, each displaced by the
         flow at that point, with the rgb channels pulled apart */
   if (useMesh) {
+    /* a faint wash of the motion grid, well under the streamlines. the old
+       full-alpha blocks were half of what made it burn out. */
     ctx.globalCompositeOperation = "lighter";
     var cwid = W / COLS, chgt = H / ROWS;
-    var chan = [["#FF0040", -1], ["#00FF88", 0], ["#3060FF", 1]];
-    for (var c = 0; c < 3; c++) {
-      ctx.globalAlpha = P.glow * 0.16 * (0.4 + P.sat * 0.6);
-      ctx.fillStyle = chan[c][0];
-      var off = chan[c][1] * P.chroma;
-      for (var gy2 = 0; gy2 < ROWS; gy2++) {
-        for (var gx2 = 0; gx2 < COLS; gx2++) {
-          var idx = gy2 * COLS + gx2;
-          var m = fm[idx];
-          if (m <= P.thresh) continue;
-          var mk = maskAt((gx2 + 0.5) / COLS, (gy2 + 0.5) / ROWS);
-          if (mk < 0.12) continue;
-          var dx = fx[idx] * P.warp * Math.min(1.4, mk) + off;
-          var dy = fy[idx] * P.warp * Math.min(1.4, mk);
-          var a = Math.min(1, (m - P.thresh) * 9);
-          ctx.globalAlpha = a * P.glow * 0.18 * Math.min(1, mk);
-          ctx.fillRect(gx2 * cwid + dx, gy2 * chgt + dy,
-                       cwid * 1.15, chgt * 1.15);
-        }
+    for (var gy2 = 0; gy2 < ROWS; gy2++) {
+      for (var gx2 = 0; gx2 < COLS; gx2++) {
+        var idx = gy2 * COLS + gx2;
+        var m = fm[idx];
+        if (m <= P.thresh) continue;
+        var mk = maskAt((gx2 + 0.5) / COLS, (gy2 + 0.5) / ROWS);
+        if (mk < 0.12) continue;
+        ctx.globalAlpha = Math.min(0.3, (m - P.thresh) * 4) * P.glow * 0.14;
+        ctx.fillStyle = "hsl(" + ((hue + m * 400) % 360) + ",80%,45%)";
+        ctx.fillRect(gx2 * cwid + fx[idx] * P.warp,
+                     gy2 * chgt + fy[idx] * P.warp, cwid, chgt);
       }
     }
     ctx.globalAlpha = 1;
   }
 
-  /* 2b. YOU. drawn as a bright outline plus a soft inner fill, so there is
-        something on screen unmistakably shaped like a person. this is what
-        makes the whole thing legible — the abstract layers alone give no
-        clue that they are reacting to your body. */
+  /* 2b. a hairline rim, so the silhouette is readable without a bloom */
   if (useMask && segReady && silReady && P.body > 0) {
-    var hh0 = (hue % 360 + 360) % 360;
-
-    /* your interior is CUT OUT of the accumulated light rather than filled.
-       previously it was the only thing not accumulating, so it read as a
-       black hole in a white field. now the light lives around you and your
-       body is a clean window. */
-    ctx.globalCompositeOperation = "destination-out";
-    ctx.globalAlpha = Math.min(1, 0.55 * P.body);
-    ctx.drawImage(sil, 0, 0, W, H);
-    ctx.globalAlpha = 1;
-
-    // the rim: silhouette drawn offset several times, centre punched out
     rctx.clearRect(0, 0, SILW, SILH);
-    var k = 1 + Math.round(Math.min(3, Math.hypot(avx, avy) * 9));
+    rctx.globalCompositeOperation = "source-over";
+    var k = 1;
     for (var oy = -k; oy <= k; oy++) {
-      for (var ox = -k; ox <= k; ox++) {
-        if (ox * ox + oy * oy > k * k) continue;
-        rctx.drawImage(sil, ox, oy);
-      }
+      for (var ox = -k; ox <= k; ox++) rctx.drawImage(sil, ox, oy);
     }
     rctx.globalCompositeOperation = "destination-out";
     rctx.drawImage(sil, 0, 0);
     rctx.globalCompositeOperation = "source-over";
 
-    // the rim is the bright thing on screen, and it is chromatic: three
-    // offset copies in three hues, so the edge splits like a prism
+    tctx.globalCompositeOperation = "source-over";
+    tctx.clearRect(0, 0, SILW, SILH);
+    tctx.drawImage(rim, 0, 0);
+    tctx.globalCompositeOperation = "source-in";
+    tctx.fillStyle = "hsl(" + ((hue % 360 + 360) % 360) + ",92%,64%)";
+    tctx.fillRect(0, 0, SILW, SILH);
+
     ctx.globalCompositeOperation = "lighter";
-    /* the split opens with your movement, so the rim breathes rather than
-       sitting at a constant offset — this is what ties it to your body */
-    var mv = Math.min(1, Math.hypot(avx, avy) * 3.2);
-    var sep = P.chroma * (0.18 + mv * 0.9);
-    var trio = [[0, hh0], [1, (hh0 + 45) % 360], [-1, (hh0 + 300) % 360]];
-    for (var ci = 0; ci < 3; ci++) {
-      // colour the rim mask in its own buffer, then add it to the scene
-      tctx.globalCompositeOperation = "source-over";
-      tctx.clearRect(0, 0, SILW, SILH);
-      tctx.drawImage(rim, 0, 0);
-      tctx.globalCompositeOperation = "source-in";
-      tctx.fillStyle = "hsl(" + trio[ci][1] + ",95%,62%)";
-      tctx.fillRect(0, 0, SILW, SILH);
-      ctx.globalAlpha = Math.min(1, 0.5 * P.body);
-      ctx.drawImage(tint, trio[ci][0] * sep, 0, W, H);
-    }
+    ctx.globalAlpha = Math.min(0.85, 0.45 * P.body);
+    ctx.drawImage(tint, 0, 0, W, H);
     ctx.globalAlpha = 1;
   }
 
-  /* 3. particles carried by the field */
-  if (useParticles && P.particles > 0) {
-    seedParticles(Math.round(P.particles), W, H);
+  /* 3. streamlines. this is the whole look — many thin curves following the
+        contour field, drawn additively on black so they build up density
+        where they overlap, exactly like the reference images. */
+  if (useParticles && P.particles > 0 && useMask && segReady) {
+    seedTracers(Math.round(P.particles));
     ctx.globalCompositeOperation = "lighter";
     ctx.lineCap = "round";
-    for (var pi = 0; pi < parts.length; pi++) {
-      var p = parts[pi];
-      var f = sampleFlow(p.x / W, p.y / H);
-      var mk = maskAt(p.x / W, p.y / H);
-      p.vx += f.x * 170 * dt * Math.min(1.5, 0.25 + mk);
-      p.vy += f.y * 170 * dt * Math.min(1.5, 0.25 + mk);
-      p.vx *= 0.90; p.vy *= 0.90;
-      var ox2 = p.x, oy2 = p.y;
-      p.x += p.vx; p.y += p.vy;
-      p.life -= dt * 0.25;
-      if (p.life <= 0 || p.x < -20 || p.x > W + 20 ||
-          p.y < -20 || p.y > H + 20) {
-        // when the mask is on, respawn onto the subject rather than
-        // anywhere, so the particles stay where the interest is
-        var placed = false;
-        if (useMask && segReady) {
-          for (var tr = 0; tr < 6; tr++) {
-            var rx = Math.random(), ry = Math.random();
-            if (maskGrid[Math.floor(ry * MH) * MW + Math.floor(rx * MW)] > 0.5) {
-              p.x = rx * W; p.y = ry * H; placed = true; break;
-            }
-          }
-        }
-        if (!placed) { p.x = Math.random() * W; p.y = Math.random() * H; }
-        p.vx = p.vy = 0; p.life = 1;
-      }
-      var sp = Math.hypot(p.vx, p.vy);
-      if (sp < 0.3) continue;
-      var hh = (hue + sp * 9 + pi * 0.4) % 360;
-      ctx.strokeStyle = "hsl(" + hh + "," +
-        Math.round(60 + P.sat * 40) + "%," +
-        Math.round(46 + Math.min(30, sp * 3)) + "%)";
-      ctx.lineWidth = 1 + Math.min(3, sp * 0.25);
-      ctx.globalAlpha = Math.min(0.85, sp * 0.13) * (0.4 + P.glow * 0.6);
+    var sx2 = W / FW, sy2 = H / FH;
+    var steps = Math.round(4 + P.trail * 16);
+
+    for (var ti = 0; ti < tracers.length; ti++) {
+      var tr = tracers[ti];
+      var v = fsamp(tr.x, tr.y);
+      if (v < 0.12) { respawn(tr); continue; }
+
+      // colour by the field value: interior and rim read differently
+      var hh2 = (hue + v * 120 + ti * 0.7) % 360;
+      var fade = 1 - tr.age / tr.life;
+      ctx.strokeStyle = "hsl(" + hh2 + "," +
+        Math.round(55 + P.sat * 45) + "%," +
+        Math.round(38 + v * 34) + "%)";
+      ctx.lineWidth = 0.6 + v * 1.5;
+      ctx.globalAlpha = Math.min(0.9, (0.14 + v * 0.5) * P.glow *
+                                      Math.max(0, fade));
+
       ctx.beginPath();
-      ctx.moveTo(ox2 - p.vx * P.trail * 3, oy2 - p.vy * P.trail * 3);
-      ctx.lineTo(p.x, p.y);
+      ctx.moveTo(tr.x * sx2, tr.y * sy2);
+      var cx2 = tr.x, cy2 = tr.y;
+      for (var st = 0; st < steps; st++) {
+        var c = contourAt(cx2, cy2);
+        if (!c) break;
+        // the optical flow nudges the line, so moving warps the field
+        var fl = sampleFlow(cx2 / FW, cy2 / FH);
+        cx2 += c.x * 0.85 + fl.x * P.warp * 0.05;
+        cy2 += c.y * 0.85 + fl.y * P.warp * 0.05;
+        if (cx2 < 0 || cx2 >= FW || cy2 < 0 || cy2 >= FH) break;
+        ctx.lineTo(cx2 * sx2, cy2 * sy2);
+      }
       ctx.stroke();
+
+      // advance the head of the tracer along the field
+      var h2 = contourAt(tr.x, tr.y);
+      if (h2) { tr.x += h2.x * 0.9; tr.y += h2.y * 0.9; }
+      tr.age += 1;
+      if (tr.age > tr.life || tr.x < 0 || tr.x >= FW ||
+          tr.y < 0 || tr.y >= FH) respawn(tr);
     }
     ctx.globalAlpha = 1;
   }
@@ -706,6 +762,12 @@ document.getElementById("go").addEventListener("click", function () {
   }).then(function () {
     gate.style.display = "none";
     panel.classList.add("open");
+    // the streamlines are built from the person field, so load it up front
+    if (!segTried) {
+      useMask = true;
+      document.getElementById("tMask").classList.add("on");
+      loadSegmenter();
+    }
     resize();
     running = true;
     last = performance.now();
