@@ -55,30 +55,24 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 14 — dots, mesh, and instant response
+## Build 15 — more dots
 
-**Three render modes**, cycled by the mode button:
+The model returns exactly 468 landmarks and that number is fixed. But every
+edge of the tessellation connects two real landmarks, so points interpolated
+along an edge track the face just as accurately.
 
-- **FLOW** — the streamline field, as before
-- **DOTS** — all 468 tracked landmarks as points, sized and hue-shifted by
-  their z depth so the face still reads as a surface rather than a flat
-  constellation
-- **MESH** — the same dots plus the full tessellation as a wireframe
+The **lines** slider now sets how many extra dots to place per mesh edge in
+DOTS and MESH mode:
 
-DOTS and MESH are drawn straight from the landmarks in screen space. There is
-no field, no temporal smoothing and no feedback in that path, so they track
-the camera frame exactly — nothing to catch up.
+  0 per edge ->    468 dots
+  1 per edge ->  3,068
+  2 per edge ->  5,668
+  3 per edge ->  8,268
+  5 per edge -> 13,468
 
-**The lag in FLOW mode** came from four delays compounding: field smoothing at
-0.14, mask smoothing at 0.5, face-field smoothing at 0.55, and feedback at
-0.78 holding old frames on screen.
+The per-dot helper is hoisted out of the frame loop; defining it inline would
+allocate a closure every frame, and it now runs up to thirteen thousand times
+per frame.
 
-Smoothing is now adaptive. It exists to absorb jitter while you are still, but
-the same easing reads as lag when you move — so it opens in proportion to how
-much of the frame is actually moving:
-
-  still        0.23s to settle
-  small move   0.13s
-  big move     0.07s
-
-Previously a flat 0.53s regardless. The mask and face buffers snap harder too.
+The mode button reads MODE FLOW / MODE DOTS / MODE MESH, since a button
+showing only its current state gave no hint that it could be tapped.

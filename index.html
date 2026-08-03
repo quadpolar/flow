@@ -136,7 +136,7 @@
       <button id="tMesh">WASH</button>
     <button id="tMask">ME ONLY</button>
     <button id="tRegion" class="on">OUTSIDE</button>
-    <button id="tMode" class="on">FLOW</button>
+    <button id="tMode" class="on">MODE&nbsp;FLOW</button>
     </div>
 
     <div id="sliders"></div>
@@ -336,7 +336,7 @@ toggle("tMask", function () { return useMask; },
   var names = ["FLOW", "DOTS", "MESH"];
   el.addEventListener("click", function () {
     mode = (mode + 1) % 3;
-    el.textContent = names[mode];
+    el.innerHTML = "MODE&nbsp;" + names[mode];
     if (mode > 0 && !useMask) {
       useMask = true;
       var m = document.getElementById("tMask");
@@ -961,6 +961,24 @@ function sampleFlow(u, v) {
            m: isFinite(c) ? c : 0 };
 }
 
+/* one dot on the face. hoisted out of the frame loop — defining it inside
+   would allocate a closure every frame, and this runs thousands of times. */
+var dotCtx = null, dotCrm = null, dotZs = 0, dotHue = 0,
+    dotAlpha = 1, dotSat = 80, dotW = 0, dotH = 0;
+function dot(nx, ny, nz) {
+  var px = dotCrm.x + nx * dotCrm.w, py = dotCrm.y + ny * dotCrm.h;
+  if (px < -20 || px > dotW + 20 || py < -20 || py > dotH + 20) return;
+  var dz = (nz - dotZs) * 14;
+  var r = Math.max(0.6, (1.2 + P.face * 1.0) * (1 - dz * 0.5));
+  dotCtx.fillStyle = "hsl(" + ((dotHue + dz * 90 + 360) % 360) + "," +
+    dotSat + "%," +
+    Math.round(58 + Math.max(-25, Math.min(25, -dz * 40))) + "%)";
+  dotCtx.globalAlpha = dotAlpha;
+  dotCtx.beginPath();
+  dotCtx.arc(px, py, r, 0, 6.3);
+  dotCtx.fill();
+}
+
 /* ---------- streamline tracers ----------
    each tracer walks along the contour field leaving a thin trail, then
    respawns. thousands of short curves following the same field is what
@@ -1147,25 +1165,39 @@ function frame(t) {
       ctx.stroke();
     }
 
-    // every tracked point. depth shifts the hue and the size, so the face
-    // still reads as a surface rather than a flat constellation
+    /* every tracked point, plus points interpolated along the mesh edges.
+       the model always returns 468 landmarks, but each edge between two of
+       them can be subdivided — those points are just as accurate because
+       they are derived from real ones, and they let the dot count go far
+       past what the model itself provides. */
     var zs = 0;
     for (var di = 0; di < facePts.length; di++) zs += facePts[di].z || 0;
     zs /= facePts.length || 1;
 
+    var alphaD = Math.min(1, 0.45 + P.glow * 0.5);
+    var satD = Math.round(50 + P.sat * 50);
+
+    dotCtx = ctx; dotCrm = crm; dotZs = zs; dotHue = hh3;
+    dotAlpha = alphaD; dotSat = satD; dotW = W; dotH = H;
     for (var pi2 = 0; pi2 < facePts.length; pi2++) {
       var q2 = facePts[pi2];
-      var px2 = crm.x + q2.x * crm.w, py2 = crm.y + q2.y * crm.h;
-      if (px2 < -20 || px2 > W + 20 || py2 < -20 || py2 > H + 20) continue;
-      var dz = ((q2.z || 0) - zs) * 14;
-      var r2 = Math.max(0.7, (1.5 + P.face * 1.1) * (1 - dz * 0.5));
-      ctx.fillStyle = "hsl(" + ((hh3 + dz * 90 + 360) % 360) + "," +
-        Math.round(50 + P.sat * 50) + "%," +
-        Math.round(58 + Math.max(-25, Math.min(25, -dz * 40))) + "%)";
-      ctx.globalAlpha = Math.min(1, 0.45 + P.glow * 0.5);
-      ctx.beginPath();
-      ctx.arc(px2, py2, r2, 0, 6.3);
-      ctx.fill();
+      dot(q2.x, q2.y, q2.z || 0);
+    }
+
+    // subdivide: the lines slider sets how many extra dots per mesh edge
+    var sub = Math.max(0, Math.min(5, Math.round(P.particles / 1300)));
+    if (sub > 0 && faceConn && faceConn.mesh) {
+      var cn2 = faceConn.mesh;
+      for (var si = 0; si < cn2.length; si++) {
+        var sa = facePts[cn2[si].start], sb = facePts[cn2[si].end];
+        if (!sa || !sb) continue;
+        for (var kk = 1; kk <= sub; kk++) {
+          var f2 = kk / (sub + 1);
+          dot(sa.x + (sb.x - sa.x) * f2,
+              sa.y + (sb.y - sa.y) * f2,
+              (sa.z || 0) + ((sb.z || 0) - (sa.z || 0)) * f2);
+        }
+      }
     }
     ctx.globalAlpha = 1;
   }
