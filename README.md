@@ -55,31 +55,28 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 11 — actual detail
+## Build 12 — density and a panel you can see past
 
-The field was being blurred at radius 3 over two passes, an effective support
-of 13 cells. At a field width of 176 with a face spanning 40% of frame, that
-smoothed across 19% of the face — which is why features read as generalised
-no matter how good the landmarks were.
+**Why the face read as sparse.** A flat patch of cheek has no gradient, so a
+tracer landing there is retired immediately and that area stays empty. The
+features were resolving correctly — there simply were not enough surviving
+strands to read as a surface.
 
-- field resolution 176x132 -> 288x216, sampling 256x192 -> 384x288
-- the blur radius is now the **smoothness** slider, defaulting to 1.5 instead
-  of 3. The gradient stencil scales with it, so lowering it sharpens the
-  field and the streamline response together.
-- a **contrast** slider adds a local-contrast pass: a blurred copy of the
-  luminance is subtracted from itself, which surfaces cheekbone, nostril,
-  eyelid and lip shading. A global range stretch cannot recover those,
-  because they are small differences sitting on a large gradient.
-- 1100 lines instead of 820, thinner, with a longer step to suit the finer
-  field.
+The field now carries a gentle built-in slope inside the mask: weak enough
+that real shading and the landmarks still determine the shape, strong enough
+that flow exists everywhere on the body. Measured under perfectly flat
+lighting, interior cells carrying usable flow went from patchy to 100%.
 
-## Scrubbing
-The panel drops to near-transparent while a slider is being dragged, and
-returns 450ms after release — so a change can be seen while it is being made.
+Line count raised from 1100 to 3200 by default, ceiling 6000, and strands
+survive to a lower field value. Draw calls went from 5,885 to 17,096 per six
+frames.
 
-## A NaN guard
-Buffers are reallocated when the video aspect is detected, and a tracer
-surviving across that could read stale geometry; one non-finite value then
-propagated through every subsequent step. Positions, contour vectors and flow
-samples are all checked now. Verified over repeated runs: no non-finite
-coordinates reach the canvas.
+**The panel.** It was rgba(12,10,20,.82) over an 18px backdrop blur, which is
+opaque for practical purposes — the scrub-transparency added in build 11 was
+fighting a blur that never went away. Now:
+
+- base background .34 alpha, no blur at all
+- .06 alpha while a slider is being dragged
+- max height 46vh instead of 74vh, tighter rows, so it covers far less
+- labels carry a text shadow so they survive on a transparent ground
+- tapping the picture closes the panel outright

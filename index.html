@@ -42,23 +42,21 @@
   /* controls */
   #panel {
     position:absolute; left:0; right:0; bottom:0; z-index:4;
-    background:rgba(12,10,20,.82); backdrop-filter:blur(18px);
-    -webkit-backdrop-filter:blur(18px);
-    border-top:1px solid rgba(255,255,255,.09);
-    padding:10px 14px calc(14px + env(safe-area-inset-bottom));
-    transform:translateY(calc(100% - 46px)); transition:transform .28s ease;
-    max-height:74vh; overflow-y:auto; -webkit-overflow-scrolling:touch;
+    background:rgba(8,7,14,.34);
+    border-top:1px solid rgba(255,255,255,.07);
+    padding:6px 14px calc(10px + env(safe-area-inset-bottom));
+    transform:translateY(calc(100% - 44px)); transition:transform .28s ease;
+    max-height:46vh; overflow-y:auto; -webkit-overflow-scrolling:touch;
   }
   #panel.open { transform:translateY(0); }
   /* while a slider is being dragged the panel drops to near-transparent,
      so the change can actually be seen underneath it */
-  #panel.scrub { background:rgba(12,10,20,.12); backdrop-filter:none;
-                 -webkit-backdrop-filter:none; }
+  #panel.scrub { background:rgba(8,7,14,.06); }
   #panel.scrub .row label { opacity:.9; text-shadow:0 1px 3px #000; }
   #panel.scrub .presets, #panel.scrub .toggles { opacity:.25; }
   #panel, #panel .row label { transition:background .18s, opacity .18s; }
   #grip {
-    height:26px; display:flex; align-items:center; justify-content:center;
+    height:24px; display:flex; align-items:center; justify-content:center;
     gap:9px; cursor:pointer; font-size:11px; letter-spacing:.14em;
     text-transform:uppercase; opacity:.65;
   }
@@ -66,22 +64,23 @@
     content:''; width:34px; height:4px; border-radius:2px;
     background:rgba(255,255,255,.3);
   }
-  .presets { display:flex; gap:7px; flex-wrap:wrap; margin:10px 0 14px; }
+  .presets { display:flex; gap:6px; flex-wrap:wrap; margin:6px 0 7px; }
   .presets button {
-    flex:1 1 auto; padding:9px 4px; border:1px solid rgba(255,255,255,.14);
+    flex:1 1 auto; padding:7px 4px; border:1px solid rgba(255,255,255,.14);
     border-radius:11px; background:rgba(255,255,255,.05); color:#EDE9F5;
     font:700 11px/1 inherit; letter-spacing:.05em; cursor:pointer;
   }
   .presets button:active { background:rgba(201,242,74,.22); }
   .row { margin-bottom:11px; }
   .row label {
-    display:flex; justify-content:space-between; font-size:11px;
-    letter-spacing:.05em; text-transform:uppercase; opacity:.62;
-    margin-bottom:5px;
+    display:flex; justify-content:space-between; font-size:10px;
+    letter-spacing:.05em; text-transform:uppercase; opacity:.8;
+    margin-bottom:2px; text-shadow:0 1px 4px #000, 0 0 2px #000;
   }
+  .row { margin-bottom:4px; }
   .row label b { font-weight:700; opacity:.95; font-variant-numeric:tabular-nums; }
   input[type=range] {
-    -webkit-appearance:none; width:100%; height:22px; background:transparent;
+    -webkit-appearance:none; width:100%; height:18px; background:transparent;
   }
   input[type=range]::-webkit-slider-runnable-track {
     height:3px; border-radius:2px; background:rgba(255,255,255,.16);
@@ -96,9 +95,9 @@
   input[type=range]::-moz-range-thumb {
     width:19px; height:19px; border:0; border-radius:50%; background:#C9F24A;
   }
-  .toggles { display:flex; gap:7px; margin-top:4px; }
+  .toggles { display:flex; gap:6px; margin:0 0 8px; flex-wrap:wrap; }
   .toggles button {
-    flex:1; padding:9px 4px; border:1px solid rgba(255,255,255,.14);
+    flex:1; padding:7px 4px; border:1px solid rgba(255,255,255,.14);
     border-radius:11px; background:rgba(255,255,255,.05); color:#EDE9F5;
     font:700 11px/1 inherit; letter-spacing:.05em; cursor:pointer;
   }
@@ -166,7 +165,7 @@ var P = {
   glow:     0.75,   // brightness of the ink laid down
   hue:      0.03,   // hue rotation per second
   sat:      0.85,
-  particles: 1100,
+  particles: 3200,
   trail:    0.85,   // particle streak length
   thresh:   0.06,   // motion below this is ignored
   edge:     1.2,    // how much the outline of you is favoured
@@ -190,7 +189,7 @@ var SPECS = [
   ["glow",      "ink",       0,    1.6,   0.05],
   ["hue",       "hue drift", -2,   2,     0.05],
   ["sat",       "saturation",0,    1,     0.05],
-  ["particles", "lines",     0,    900,   10],
+  ["particles", "lines",     0,    6000,  50],
   ["trail",     "line length",0,   1,     0.05],
   ["thresh",    "threshold", 0,    0.3,   0.005],
   ["edge",      "edge bias", 0,    3,     0.05],
@@ -206,27 +205,27 @@ var SPECS = [
 
 var PRESETS = {
   silk:    { feedback:.90, zoom:1.001, spin:.02, drift:.08, warp:9,
-             chroma:5,  glow:.7,  hue:.04, sat:.5,  particles:820, trail:.85,
+             chroma:5,  glow:.7,  hue:.04, sat:.5,  particles:3000, trail:.85,
              thresh:.06, edge:1.0, body:.35, bleed:.07, smooth:.09,
              speed:.30, deshake:.9, face:1.0, detail:2.0, contrast:1.2  },
   portrait:{ feedback:.93, zoom:1.000, spin:.01, drift:.04, warp:6,
-             chroma:4,  glow:.8,  hue:.02, sat:.45, particles:900, trail:.95,
+             chroma:4,  glow:.8,  hue:.02, sat:.45, particles:3600, trail:.95,
              thresh:.07, edge:.7,  body:.25, bleed:.05, smooth:.08,
              speed:.22, deshake:.95, face:2.1, detail:1.0, contrast:2.2  },
   ember:   { feedback:.91, zoom:1.002, spin:.04, drift:.14, warp:16,
-             chroma:8,  glow:.85, hue:.02, sat:.95, particles:760, trail:.9,
+             chroma:8,  glow:.85, hue:.02, sat:.95, particles:3000, trail:.9,
              thresh:.05, edge:1.3, body:.45, bleed:.06, smooth:.11,
              speed:.38, deshake:.85, face:1.3, detail:1.5, contrast:1.5  },
   ghost:   { feedback:.95, zoom:1.000, spin:0,   drift:.05, warp:6,
-             chroma:3,  glow:.42, hue:.02, sat:.2,  particles:560, trail:.95,
+             chroma:3,  glow:.42, hue:.02, sat:.2,  particles:2200, trail:.95,
              thresh:.07, edge:1.5, body:.28, bleed:.04, smooth:.07,
              speed:.22, deshake:.95, face:.8, detail:2.5, contrast:0.9  },
   ribbon:  { feedback:.78, zoom:1.000, spin:0,   drift:.06, warp:12,
-             chroma:7,  glow:1.0, hue:.12, sat:.85, particles:480, trail:1,
+             chroma:7,  glow:1.0, hue:.12, sat:.85, particles:1800, trail:1,
              thresh:.05, edge:.9,  body:.4,  bleed:.13, smooth:.14,
              speed:.55, deshake:.8, face:1.4, detail:1.5, contrast:1.3  },
   storm:   { feedback:.88, zoom:1.004, spin:.18, drift:.5,  warp:44,
-             chroma:16, glow:.95, hue:.25, sat:1,   particles:900, trail:.6,
+             chroma:16, glow:.95, hue:.25, sat:1,   particles:4000, trail:.6,
              thresh:.04, edge:.8,  body:.55, bleed:.08, smooth:.22,
              speed:.9,  deshake:.6, face:.6, detail:2.0, contrast:1.0  },
 };
@@ -336,6 +335,11 @@ document.getElementById("grip").addEventListener("click", function () {
   panel.classList.toggle("open");
 });
 
+// tapping the picture hides the panel, so a setting can be judged clean
+view.addEventListener("pointerdown", function () {
+  panel.classList.remove("open");
+});
+
 /* ---------- person mask ----------
    MediaPipe Image Segmenter, loaded from a CDN on demand. it returns a
    per-pixel person/background mask which is downsampled onto the flow grid,
@@ -385,7 +389,13 @@ function buildField(arr, w, h, lumaSrc) {
       /* luminance dominates inside the mask, so the face and torso carry
          real contours. with a flat interior the gradient is zero and the
          only lines that appear are on the silhouette edge. */
-      var base = on ? (0.14 + l * 1.9) : 0;
+      /* a gentle built-in slope inside the mask. a flat patch of cheek has
+         no gradient, so a tracer there dies immediately and the face stays
+         empty. this guarantees flow everywhere on the body while staying
+         weak enough that real shading and landmarks dominate the shape. */
+      var slope = on ? (0.30 + 0.22 * Math.sin(x * 0.055 + y * 0.021)
+                             + 0.16 * (y / FH)) : 0;
+      var base = on ? (slope + l * 1.5) : 0;
       /* face contours raise the field, so a streamline following a line of
          constant value is deflected around an eyelid or a lip the same way
          it is deflected around the body. */
@@ -927,7 +937,7 @@ function respawn(t) {
   for (var i = 0; i < 14; i++) {
     var x = Math.random() * FW, y = Math.random() * FH;
     if (!regionOK(x, y)) continue;
-    if (fieldA[(y | 0) * FW + (x | 0)] > 0.14) {
+    if (fieldA[(y | 0) * FW + (x | 0)] > 0.08) {
       t.x = x; t.y = y; t.age = 0;
       t.life = 40 + Math.random() * 70;
       return;
@@ -1085,7 +1095,7 @@ function frame(t) {
       var tr = tracers[ti];
       if (!isFinite(tr.x) || !isFinite(tr.y)) { respawn(tr); continue; }
       var v = fsamp(tr.x, tr.y);
-      if (!isFinite(v) || v < 0.10 || !regionOK(tr.x, tr.y)) {
+      if (!isFinite(v) || v < 0.05 || !regionOK(tr.x, tr.y)) {
         respawn(tr); continue;
       }
 
