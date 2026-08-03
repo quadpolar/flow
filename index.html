@@ -127,6 +127,7 @@
       <button id="tMirror" class="on">MIRROR</button>
       <button id="tParticles" class="on">PARTICLES</button>
       <button id="tMesh" class="on">MESH</button>
+    <button id="tMask">ME ONLY</button>
     </div>
 
     <div id="sliders"></div>
@@ -159,6 +160,7 @@ var P = {
   particles: 260,
   trail:    0.55,   // particle streak length
   thresh:   0.06,   // motion below this is ignored
+  edge:     1.2,    // how much the outline of you is favoured
 };
 
 var SPECS = [
@@ -174,27 +176,28 @@ var SPECS = [
   ["particles", "particles", 0,    900,   10],
   ["trail",     "streak",    0,    1,     0.05],
   ["thresh",    "threshold", 0,    0.3,   0.005],
+  ["edge",      "edge bias", 0,    3,     0.05],
 ];
 
 var PRESETS = {
   smoke:   { feedback:.93, zoom:1.006, spin:.15, drift:1.4, warp:26,
              chroma:4,  glow:.5,  hue:.2,  sat:.7,  particles:420, trail:.75,
-             thresh:.05 },
+             thresh:.05, edge:1.4 },
   tunnel:  { feedback:.96, zoom:1.032, spin:1.1, drift:.3,  warp:14,
              chroma:12, glow:.75, hue:.9,  sat:1,   particles:120, trail:.4,
-             thresh:.07 },
+             thresh:.07, edge:0.6 },
   oil:     { feedback:.88, zoom:1.002, spin:-.4, drift:2.2, warp:96,
              chroma:26, glow:.6,  hue:1.4, sat:1,   particles:0,   trail:.5,
-             thresh:.04 },
+             thresh:.04, edge:2.2 },
   ghost:   { feedback:.985,zoom:1.000, spin:0,   drift:.1,  warp:8,
              chroma:2,  glow:.32, hue:.06, sat:.35, particles:80,  trail:.9,
-             thresh:.09 },
+             thresh:.09, edge:1.8 },
   shatter: { feedback:.72, zoom:0.985, spin:2.4, drift:2.6, warp:128,
              chroma:34, glow:1.15,hue:-1.2,sat:1,   particles:760, trail:.25,
-             thresh:.03 },
+             thresh:.03, edge:0.8 },
 };
 
-var mirror = true, useParticles = true, useMesh = true;
+var mirror = true, useParticles = true, useMesh = true, useMask = false;
 
 /* ---------- build the sliders ---------- */
 var wrap = document.getElementById("sliders");
@@ -252,10 +255,108 @@ toggle("tParticles", function () { return useParticles; },
        function (v) { useParticles = v; });
 toggle("tMesh", function () { return useMesh; },
        function (v) { useMesh = v; });
+toggle("tMask", function () { return useMask; },
+       function (v) {
+         useMask = v;
+         if (v && !segReady && !segTried) loadSegmenter();
+       });
 
 document.getElementById("grip").addEventListener("click", function () {
   panel.classList.toggle("open");
 });
+
+/* ---------- person mask ----------
+   MediaPipe Image Segmenter, loaded from a CDN on demand. it returns a
+   per-pixel person/background mask which is downsampled onto the flow grid,
+   so motion in the background can be suppressed and the outline of the
+   subject can be emphasised. entirely optional — if the CDN is unreachable
+   the toggle switches itself off and everything else carries on. */
+var segmenter = null, segReady = false, segTried = false, segErr = "";
+var MW = 64, MH = 48;                 // mask resolution on the flow grid
+var maskGrid = new Float32Array(MW * MH);
+var maskCanvas = document.createElement("canvas");
+maskCanvas.width = MW; maskCanvas.height = MH;
+var mctx = maskCanvas.getContext("2d", { willReadFrequently: true });
+
+function loadSegmenter() {
+  segTried = true;
+  var el = document.getElementById("tMask");
+  el.textContent = "LOADING…";
+  import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14")
+    .then(function (v) {
+      return v.FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+      ).then(function (fileset) {
+        return v.ImageSegmenter.createFromOptions(fileset, {
+          baseOptions: {
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/" +
+              "image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite",
+            delegate: "GPU",
+          },
+          runningMode: "VIDEO",
+          outputCategoryMask: true,
+          outputConfidenceMasks: false,
+        });
+      });
+    })
+    .then(function (seg) {
+      segmenter = seg; segReady = true;
+      el.textContent = "ME ONLY";
+    })
+    .catch(function (e) {
+      segErr = String(e && e.message ? e.message : e);
+      useMask = false; segReady = false;
+      el.textContent = "ME ONLY";
+      el.classList.remove("on");
+      errEl.textContent = "Person mask unavailable — using plain motion.";
+      setTimeout(function () { errEl.textContent = ""; }, 3400);
+    });
+}
+
+function updateMask(tms) {
+  if (!segReady || !segmenter) return;
+  try {
+    var res = segmenter.segmentForVideo(cam, tms);
+    var cat = res && res.categoryMask;
+    if (!cat) return;
+    var w = cat.width, h = cat.height;
+    var arr = cat.getAsUint8Array();
+    // downsample onto the flow grid by area averaging
+    for (var gy = 0; gy < MH; gy++) {
+      var y0 = Math.floor(gy * h / MH), y1 = Math.floor((gy + 1) * h / MH);
+      for (var gx = 0; gx < MW; gx++) {
+        var x0 = Math.floor(gx * w / MW), x1 = Math.floor((gx + 1) * w / MW);
+        var hit = 0, n = 0;
+        for (var y = y0; y < y1; y += 2) {
+          for (var x = x0; x < x1; x += 2) {
+            if (arr[y * w + x] !== 0) hit++;
+            n++;
+          }
+        }
+        var v = n ? hit / n : 0;
+        var i = gy * MW + gx;
+        maskGrid[i] += (v - maskGrid[i]) * 0.5;   // soften over time
+      }
+    }
+    cat.close();
+  } catch (e) { /* a dropped frame is not worth stopping for */ }
+}
+
+/* how much of "you" is at this point, 0..1, plus an edge term so the
+   silhouette itself reads strongest */
+function maskAt(u, v) {
+  if (!useMask || !segReady) return 1;
+  var gx = Math.max(0, Math.min(MW - 1, Math.floor(u * MW)));
+  var gy = Math.max(0, Math.min(MH - 1, Math.floor(v * MH)));
+  var c = maskGrid[gy * MW + gx];
+  if (P.edge <= 0) return c;
+  var l = maskGrid[gy * MW + Math.max(0, gx - 1)];
+  var r = maskGrid[gy * MW + Math.min(MW - 1, gx + 1)];
+  var t = maskGrid[Math.max(0, gy - 1) * MW + gx];
+  var b = maskGrid[Math.min(MH - 1, gy + 1) * MW + gx];
+  var edge = Math.abs(l - r) + Math.abs(t - b);
+  return Math.min(1.6, c + edge * P.edge);
+}
 
 /* ---------- optical flow ----------
    the video is drawn into a small hidden canvas, and each cell is compared
@@ -365,6 +466,7 @@ function frame(t) {
   last = t;
   resize();
   computeFlow();
+  if (useMask && segReady) updateMask(t);
 
   hue += P.hue * dt * 60;
 
@@ -374,7 +476,11 @@ function frame(t) {
         overall drift of the flow. this is what makes tunnels and smears. */
   var avx = 0, avy = 0, tot = 0;
   for (var i = 0; i < fm.length; i++) {
-    if (fm[i] > P.thresh) { avx += fx[i]; avy += fy[i]; tot++; }
+    if (fm[i] <= P.thresh) continue;
+    var mgy = Math.floor(i / COLS) / ROWS, mgx = (i % COLS) / COLS;
+    var wgt = useMask && segReady ? Math.min(1, maskAt(mgx, mgy)) : 1;
+    if (wgt < 0.15) continue;
+    avx += fx[i] * wgt; avy += fy[i] * wgt; tot += wgt;
   }
   if (tot) { avx /= tot; avy /= tot; }
 
@@ -415,10 +521,12 @@ function frame(t) {
           var idx = gy2 * COLS + gx2;
           var m = fm[idx];
           if (m <= P.thresh) continue;
-          var dx = fx[idx] * P.warp + off;
-          var dy = fy[idx] * P.warp;
+          var mk = maskAt((gx2 + 0.5) / COLS, (gy2 + 0.5) / ROWS);
+          if (mk < 0.12) continue;
+          var dx = fx[idx] * P.warp * Math.min(1.4, mk) + off;
+          var dy = fy[idx] * P.warp * Math.min(1.4, mk);
           var a = Math.min(1, (m - P.thresh) * 9);
-          ctx.globalAlpha = a * P.glow * 0.55;
+          ctx.globalAlpha = a * P.glow * 0.55 * Math.min(1, mk);
           ctx.fillRect(gx2 * cwid + dx, gy2 * chgt + dy,
                        cwid * 1.15, chgt * 1.15);
         }
@@ -435,15 +543,27 @@ function frame(t) {
     for (var pi = 0; pi < parts.length; pi++) {
       var p = parts[pi];
       var f = sampleFlow(p.x / W, p.y / H);
-      p.vx += f.x * 260 * dt;
-      p.vy += f.y * 260 * dt;
+      var mk = maskAt(p.x / W, p.y / H);
+      p.vx += f.x * 260 * dt * Math.min(1.5, 0.25 + mk);
+      p.vy += f.y * 260 * dt * Math.min(1.5, 0.25 + mk);
       p.vx *= 0.94; p.vy *= 0.94;
       var ox2 = p.x, oy2 = p.y;
       p.x += p.vx; p.y += p.vy;
       p.life -= dt * 0.25;
       if (p.life <= 0 || p.x < -20 || p.x > W + 20 ||
           p.y < -20 || p.y > H + 20) {
-        p.x = Math.random() * W; p.y = Math.random() * H;
+        // when the mask is on, respawn onto the subject rather than
+        // anywhere, so the particles stay where the interest is
+        var placed = false;
+        if (useMask && segReady) {
+          for (var tr = 0; tr < 6; tr++) {
+            var rx = Math.random(), ry = Math.random();
+            if (maskGrid[Math.floor(ry * MH) * MW + Math.floor(rx * MW)] > 0.5) {
+              p.x = rx * W; p.y = ry * H; placed = true; break;
+            }
+          }
+        }
+        if (!placed) { p.x = Math.random() * W; p.y = Math.random() * H; }
         p.vx = p.vy = 0; p.life = 1;
       }
       var sp = Math.hypot(p.vx, p.vy);
