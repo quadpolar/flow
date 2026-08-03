@@ -55,24 +55,19 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 15 — more dots
+## Build 16 — dots and mesh separated
 
-The model returns exactly 468 landmarks and that number is fixed. But every
-edge of the tessellation connects two real landmarks, so points interpolated
-along an edge track the face just as accurately.
+The mode button cycled FLOW / DOTS / MESH, where MESH meant dots plus mesh —
+so there was no way to see the wireframe on its own. It now cycles four ways:
 
-The **lines** slider now sets how many extra dots to place per mesh edge in
-DOTS and MESH mode:
+  FLOW   streamlines
+  DOTS   landmark dots only
+  MESH   wireframe only, no dots
+  BOTH   dots and wireframe
 
-  0 per edge ->    468 dots
-  1 per edge ->  3,068
-  2 per edge ->  5,668
-  3 per edge ->  8,268
-  5 per edge -> 13,468
+Verified: MESH draws the wireframe with zero dot calls, and all four
+combinations are independent.
 
-The per-dot helper is hoisted out of the frame loop; defining it inline would
-allocate a closure every frame, and it now runs up to thirteen thousand times
-per frame.
-
-The mode button reads MODE FLOW / MODE DOTS / MODE MESH, since a button
-showing only its current state gave no hint that it could be tapped.
+**Dot size** now has its own slider, 0.3 to 5.0. It was previously derived
+from the features slider, which fixed it at about 2.1px radius and made it
+impossible to thin out at high dot counts.
