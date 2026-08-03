@@ -116,7 +116,7 @@
     <div id="grip">controls</div>
 
     <div class="presets">
-      <button data-p="grain">GRAIN</button>
+      <button data-p="silk">SILK</button>
       <button data-p="ember">EMBER</button>
       <button data-p="ghost">GHOST</button>
       <button data-p="ribbon">RIBBON</button>
@@ -150,19 +150,22 @@ var ctx = view.getContext("2d");
 var P = {
   feedback: 0.82,   // how much of the last frame is kept
   zoom:     1.002,  // scale applied to the feedback each frame
-  spin:     0.05,   // degrees of rotation on the feedback
-  drift:    0.15,   // how far the feedback is pushed by the flow
-  warp:     18,     // mesh displacement in px per unit of flow
+  spin:     0.02,   // degrees of rotation on the feedback
+  drift:    0.08,   // how far the feedback is pushed by the flow
+  warp:     10,     // mesh displacement in px per unit of flow
   chroma:   6,      // rgb channel separation
   glow:     0.75,   // brightness of the ink laid down
-  hue:      0.06,   // hue rotation per second
+  hue:      0.03,   // hue rotation per second
   sat:      0.85,
-  particles: 620,
-  trail:    0.62,   // particle streak length
+  particles: 820,
+  trail:    0.85,   // particle streak length
   thresh:   0.06,   // motion below this is ignored
   edge:     1.2,    // how much the outline of you is favoured
-  body:     0.55,    // how strongly your silhouette is drawn
+  body:     0.35,    // how strongly your silhouette is drawn
   bleed:    0.10,  // stops light accumulating to white
+  smooth:   0.10,  // how fast the field follows the camera
+  speed:    0.32,  // how fast the lines travel
+  deshake:  0.85,  // cancels whole-frame camera movement
 };
 
 var SPECS = [
@@ -181,25 +184,34 @@ var SPECS = [
   ["edge",      "edge bias", 0,    3,     0.05],
   ["body",      "your outline", 0, 1.5,   0.05],
   ["bleed",     "bleed",     0,    0.3,   0.005],
+  ["smooth",    "smoothing", 0.02, 1,     0.01],
+  ["speed",     "speed",     0.1,  2.5,   0.05],
+  ["deshake",   "de-shake",  0,    1,     0.05],
 ];
 
 var PRESETS = {
-  grain:   { feedback:.82, zoom:1.002, spin:.05, drift:.15, warp:14,
-             chroma:6,  glow:.8,  hue:.05, sat:.55, particles:760, trail:.7,
-             thresh:.05, edge:1.2, body:.45, bleed:.10 },
-  ember:   { feedback:.88, zoom:1.004, spin:.1,  drift:.3,  warp:30,
-             chroma:10, glow:.9,  hue:.02, sat:1,   particles:700, trail:.8,
-             thresh:.04, edge:1.6, body:.6,  bleed:.07 },
-  ghost:   { feedback:.94, zoom:1.001, spin:0,   drift:.08, warp:8,
-             chroma:3,  glow:.45, hue:.03, sat:.25, particles:480, trail:.9,
-             thresh:.07, edge:1.8, body:.35, bleed:.05 },
-  ribbon:  { feedback:.70, zoom:1.000, spin:0,   drift:.1,  warp:22,
-             chroma:8,  glow:1.1, hue:.3,  sat:.9,  particles:420, trail:1,
-             thresh:.05, edge:1.0, body:.5,  bleed:.16 },
-  storm:   { feedback:.86, zoom:1.008, spin:.5,  drift:1.1, warp:70,
-             chroma:20, glow:.95, hue:.6,  sat:1,   particles:900, trail:.45,
-             thresh:.03, edge:.8,  body:.7,  bleed:.09 },
+  silk:    { feedback:.90, zoom:1.001, spin:.02, drift:.08, warp:9,
+             chroma:5,  glow:.7,  hue:.04, sat:.5,  particles:820, trail:.85,
+             thresh:.06, edge:1.0, body:.35, bleed:.07, smooth:.09,
+             speed:.30, deshake:.9 },
+  ember:   { feedback:.91, zoom:1.002, spin:.04, drift:.14, warp:16,
+             chroma:8,  glow:.85, hue:.02, sat:.95, particles:760, trail:.9,
+             thresh:.05, edge:1.3, body:.45, bleed:.06, smooth:.11,
+             speed:.38, deshake:.85 },
+  ghost:   { feedback:.95, zoom:1.000, spin:0,   drift:.05, warp:6,
+             chroma:3,  glow:.42, hue:.02, sat:.2,  particles:560, trail:.95,
+             thresh:.07, edge:1.5, body:.28, bleed:.04, smooth:.07,
+             speed:.22, deshake:.95 },
+  ribbon:  { feedback:.78, zoom:1.000, spin:0,   drift:.06, warp:12,
+             chroma:7,  glow:1.0, hue:.12, sat:.85, particles:480, trail:1,
+             thresh:.05, edge:.9,  body:.4,  bleed:.13, smooth:.14,
+             speed:.55, deshake:.8 },
+  storm:   { feedback:.88, zoom:1.004, spin:.18, drift:.5,  warp:44,
+             chroma:16, glow:.95, hue:.25, sat:1,   particles:900, trail:.6,
+             thresh:.04, edge:.8,  body:.55, bleed:.08, smooth:.22,
+             speed:.9,  deshake:.6 },
 };
+
 
 
 
@@ -293,7 +305,7 @@ var mctx = maskCanvas.getContext("2d", { willReadFrequently: true });
 /* a higher-resolution silhouette, used to actually DRAW you rather than
    just weight the abstract layers. without something on screen shaped like
    a person there is no way to tell the effect is reacting to you at all. */
-var SILW = 384, SILH = 288;
+var SILW = 384, SILH = 288;  // resized to the video aspect
 var sil = document.createElement("canvas");
 sil.width = SILW; sil.height = SILH;
 var silctx = sil.getContext("2d");
@@ -306,9 +318,12 @@ var silReady = false;
    gives a gradient that is zero everywhere except one pixel. so the mask is
    blurred heavily, sampled bilinearly, and combined with the camera's own
    luminance so the interior has structure too. */
-var FW = 176, FH = 132;
+var FW = 176, FH = 132;   // resized to the video aspect on first frame
 var fieldA = new Float32Array(FW * FH);
 var fieldB = new Float32Array(FW * FH);
+var fieldPrev = new Float32Array(FW * FH);
+var fieldSeeded = false;
+var fieldMax = 1;
 
 function buildField(arr, w, h, lumaSrc) {
   // mask, plus luminance inside it so the face has internal contours
@@ -353,6 +368,22 @@ function buildField(arr, w, h, lumaSrc) {
       }
     }
   }
+
+  /* ease the field toward its new state instead of replacing it. a knock to
+     the camera and a flickering segmentation edge both arrive as a sudden
+     change; blending removes the jitter from both without losing detail. */
+  var ease = fieldSeeded ? P.smooth : 1;
+  fieldSeeded = true;
+  for (var i2 = 0; i2 < fieldA.length; i2++) {
+    fieldPrev[i2] += (fieldA[i2] - fieldPrev[i2]) * ease;
+    fieldA[i2] = fieldPrev[i2];
+  }
+  // track the peak so thresholds are relative, not absolute
+  var pk = 0;
+  for (var i3 = 0; i3 < fieldA.length; i3++) {
+    if (fieldA[i3] > pk) pk = fieldA[i3];
+  }
+  fieldMax = Math.max(0.05, pk);
 }
 
 function fsamp(x, y) {
@@ -367,9 +398,13 @@ function fsamp(x, y) {
 /* the camera is 4:3 and the phone is much taller. drawing the mask across
    the full screen stretches it — measured, that squashes x to 0.35 of its
    correct width. cover-fit scales to fill and crops the overflow instead. */
-function coverRect(srcW, srcH) {
-  var sc = Math.max(W / srcW, H / srcH);
-  var dw = srcW * sc, dh = srcH * sc;
+function coverRect() {
+  /* the aspect must come from the VIDEO, not from the buffer it was sampled
+     into. iOS often delivers portrait frames; assuming 4:3 stretches the
+     mask horizontally, which reads as the subject being too wide. */
+  var vw = cam.videoWidth || 640, vh = cam.videoHeight || 480;
+  var sc = Math.max(W / vw, H / vh);
+  var dw = vw * sc, dh = vh * sc;
   return { x: (W - dw) / 2, y: (H - dh) / 2, w: dw, h: dh };
 }
 
@@ -441,6 +476,39 @@ function loadSegmenter() {
     });
 }
 
+function matchAspect() {
+  var vw = cam.videoWidth, vh = cam.videoHeight;
+  if (!vw || !vh) return;
+  var a = vw / vh;
+  var nSW = a >= 1 ? 256 : Math.round(256 * a);
+  var nSH = a >= 1 ? Math.round(256 / a) : 256;
+  if (nSW !== SW || nSH !== SH) {
+    SW = nSW; SH = nSH;
+    small.width = SW; small.height = SH;
+    prev = null;
+  }
+  var nFW = a >= 1 ? 176 : Math.round(176 * a);
+  var nFH = a >= 1 ? Math.round(176 / a) : 176;
+  if (nFW !== FW || nFH !== FH) {
+    FW = nFW; FH = nFH;
+    fieldA = new Float32Array(FW * FH);
+    fieldB = new Float32Array(FW * FH);
+    fieldPrev = new Float32Array(FW * FH);
+    fieldSeeded = false;
+    lumaField = new Float32Array(FW * FH);
+    tracers.length = 0;
+  }
+  var nSILW = a >= 1 ? 384 : Math.round(384 * a);
+  var nSILH = a >= 1 ? Math.round(384 / a) : 384;
+  if (nSILW !== SILW || nSILH !== SILH) {
+    SILW = nSILW; SILH = nSILH;
+    sil.width = SILW; sil.height = SILH;
+    rim.width = SILW; rim.height = SILH;
+    tint.width = SILW; tint.height = SILH;
+    silImg = silctx.createImageData(SILW, SILH);
+  }
+}
+
 function updateMask(tms) {
   if (!segReady || !segmenter) return;
   try {
@@ -472,10 +540,21 @@ function updateMask(tms) {
       var ry = Math.floor(sy * h / SILH);
       for (var sx = 0; sx < SILW; sx++) {
         var rx = Math.floor(sx * w / SILW);
-        var on = arr[ry * w + rx] !== 0;
+        /* sample a small neighbourhood instead of one pixel. a 1-bit mask
+           upscaled to the screen stair-steps badly; averaging gives a soft
+           edge that survives the scale. */
+        var acc = 0, cnt3 = 0;
+        for (var ny = -1; ny <= 1; ny++) {
+          for (var nx = -1; nx <= 1; nx++) {
+            var qy = ry + ny * 2, qx = rx + nx * 2;
+            if (qy < 0 || qy >= h || qx < 0 || qx >= w) continue;
+            if (arr[qy * w + qx] !== 0) acc++;
+            cnt3++;
+          }
+        }
         var o = (sy * SILW + sx) * 4;
         d[o] = 255; d[o + 1] = 255; d[o + 2] = 255;
-        d[o + 3] = on ? 255 : 0;
+        d[o + 3] = cnt3 ? Math.round(255 * acc / cnt3) : 0;
       }
     }
     silctx.putImageData(silImg, 0, 0);
@@ -509,7 +588,7 @@ function maskAt(u, v) {
    each direction and taking whichever shift best explains the change gives a
    direction — that is the flow. no model, no face detection, works in any
    light and responds to hands and background too. */
-var SW = 256, SH = 192;         // sampling resolution
+var SW = 256, SH = 192;         // sampling resolution, corrected to the video
 var COLS = 32, ROWS = 24;       // flow grid
 var small = document.createElement("canvas");
 small.width = SW; small.height = SH;
@@ -565,6 +644,20 @@ function computeFlow() {
       fm[i] += (diff - fm[i]) * 0.4;
     }
   }
+  /* a knock to the camera moves every cell at once. subtracting the median
+     drift leaves only motion that is genuinely yours, which is what stops
+     the whole field lurching when the phone is jostled. */
+  var mx2 = 0, my2 = 0, cnt4 = 0;
+  for (var q = 0; q < fx.length; q++) {
+    if (fm[q] > 0.01) { mx2 += fx[q]; my2 += fy[q]; cnt4++; }
+  }
+  if (cnt4 > fx.length * 0.35) {          // only when MOST cells are moving
+    mx2 /= cnt4; my2 /= cnt4;
+    for (var q2 = 0; q2 < fx.length; q2++) {
+      fx[q2] -= mx2 * P.deshake;
+      fy[q2] -= my2 * P.deshake;
+    }
+  }
   prev = cur;
 }
 
@@ -591,7 +684,7 @@ function respawn(t) {
   // prefer to start on the subject, where the field has structure
   for (var i = 0; i < 8; i++) {
     var x = Math.random() * FW, y = Math.random() * FH;
-    if (fieldA[(y | 0) * FW + (x | 0)] > 0.25) {
+    if (fieldA[(y | 0) * FW + (x | 0)] > 0.22) {
       t.x = x; t.y = y; t.age = 0;
       t.life = 40 + Math.random() * 70;
       return;
@@ -626,10 +719,11 @@ function frame(t) {
   var dt = Math.min(0.05, (t - last) / 1000 || 0.016);
   last = t;
   resize();
+  matchAspect();
   computeFlow();
   if (useMask && segReady) updateMask(t);
 
-  hue += P.hue * dt * 60;
+  hue += P.hue * dt * 22;
 
   var cw = view.width, chh = view.height;
 
@@ -719,7 +813,7 @@ function frame(t) {
 
     ctx.globalCompositeOperation = "lighter";
     ctx.globalAlpha = Math.min(0.85, 0.45 * P.body);
-    var cr = coverRect(SILW, SILH);
+    var cr = coverRect();
     ctx.drawImage(tint, cr.x, cr.y, cr.w, cr.h);
     ctx.globalAlpha = 1;
   }
@@ -731,7 +825,7 @@ function frame(t) {
     seedTracers(Math.round(P.particles));
     ctx.globalCompositeOperation = "lighter";
     ctx.lineCap = "round";
-    var cr2 = coverRect(FW, FH);
+    var cr2 = coverRect();
     var sx2 = cr2.w / FW, sy2 = cr2.h / FH;
     var ox2 = cr2.x, oy2 = cr2.y;
     var steps = Math.round(4 + P.trail * 16);
@@ -739,7 +833,7 @@ function frame(t) {
     for (var ti = 0; ti < tracers.length; ti++) {
       var tr = tracers[ti];
       var v = fsamp(tr.x, tr.y);
-      if (v < 0.12) { respawn(tr); continue; }
+      if (v < 0.10) { respawn(tr); continue; }
 
       // colour by the field value: interior and rim read differently
       var hh2 = (hue + v * 120 + ti * 0.7) % 360;
@@ -768,8 +862,8 @@ function frame(t) {
 
       // advance the head of the tracer along the field
       var h2 = contourAt(tr.x, tr.y);
-      if (h2) { tr.x += h2.x * 1.3; tr.y += h2.y * 1.3; }
-      tr.age += 1;
+      if (h2) { tr.x += h2.x * P.speed; tr.y += h2.y * P.speed; }
+      tr.age += P.speed * 0.8;
       if (tr.age > tr.life || tr.x < 0 || tr.x >= FW ||
           tr.y < 0 || tr.y >= FH) respawn(tr);
     }

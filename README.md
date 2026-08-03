@@ -55,21 +55,28 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 7 — nothing was drawing
+## Build 8 — smoothness
 
-Build 6 rendered a black screen. The field itself was healthy — 8,589 cells
-above the draw threshold in a headless test — but zero lines were being
-drawn.
+**Aspect.** The cover-fit was using the sample buffer's 4:3 shape rather than
+the video's actual dimensions. iOS often delivers portrait frames, so the mask
+was being stretched horizontally — which reads as the subject looking wide.
+Every buffer now sizes itself from cam.videoWidth/videoHeight on the first
+frame.
 
-The cause: the `coverRect` helper was inserted immediately before
-`function fsamp`, and a later edit replaced that same anchor text. The helper
-was silently removed while three call sites remained, so the first frame threw
-`ReferenceError: coverRect is not defined` and the render aborted before any
-line was stroked.
+**Jitter.** The field is now eased toward its new state rather than replaced.
+At the default the settle time is about 0.6s, which absorbs a knock to the
+camera and the segmentation edge flickering, without losing detail.
 
-It threw inside `requestAnimationFrame`, so nothing surfaced in the UI — the
-screen simply stayed black.
+**Camera shake.** A jostle moves every flow cell at once. When more than 35%
+of cells are moving together, the mean drift is subtracted — so a shake no
+longer reads as the whole world lurching. There is a de-shake slider.
 
-Fixed by restoring the helper against a stable anchor, and verified by
-running actual frames through a canvas mock that counts draw calls: 3,318
-strokes and 38,538 line segments across six frames, spanning the full screen.
+**Speed.** Tracer advance is now a slider rather than a constant, defaulting
+to about a quarter of build 7. Hue drift was also running per-frame rather
+than per-second, so it was roughly 60x too fast.
+
+**Edges.** The silhouette was a 1-bit mask upscaled, which stair-steps. Each
+output pixel now averages a small neighbourhood, giving a soft edge that
+survives the scale.
+
+Presets rebuilt for the slower feel: SILK, EMBER, GHOST, RIBBON, STORM.
