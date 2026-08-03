@@ -55,28 +55,32 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 8 — smoothness
+## Build 10 — facial features
 
-**Aspect.** The cover-fit was using the sample buffer's 4:3 shape rather than
-the video's actual dimensions. iOS often delivers portrait frames, so the mask
-was being stretched horizontally — which reads as the subject looking wide.
-Every buffer now sizes itself from cam.videoWidth/videoHeight on the first
-frame.
+MediaPipe Face Landmarker runs alongside the segmenter, sharing the same
+fileset. 478 tracked points give real eye, lip, brow, nose and jaw geometry.
 
-**Jitter.** The field is now eased toward its new state rather than replaced.
-At the default the settle time is about 0.6s, which absorbs a knock to the
-camera and the segmentation edge flickering, without losing detail.
+The contours are rasterised into a buffer at field resolution and folded into
+the scalar field before the blur, weighted by how hard each feature should
+deflect a line: eyes and lips hardest, the face oval softest. The nose bridge
+and wings are drawn from explicit landmark indices, since they have no
+connector set of their own.
 
-**Camera shake.** A jostle moves every flow cell at once. When more than 35%
-of cells are moving together, the mean drift is subtracted — so a shake no
-longer reads as the whole world lurching. There is a de-shake slider.
+Because the field is what streamlines follow, a raised contour at an eyelid
+deflects a line exactly the way the body silhouette does — the features are
+part of the same flow rather than an overlay.
 
-**Speed.** Tracer advance is now a slider rather than a constant, defaulting
-to about a quarter of build 7. Hue drift was also running per-frame rather
-than per-second, so it was roughly 60x too fast.
+Measured with deliberately flat lighting, where luminance gives nothing to
+follow:
 
-**Edges.** The silhouette was a 1-bit mask upscaled, which stair-steps. Each
-output pixel now averages a small neighbourhood, giving a soft edge that
-survives the scale.
+  no landmarks   : 0 cells with any usable gradient
+  with landmarks : 268 cells
 
-Presets rebuilt for the slower feel: SILK, EMBER, GHOST, RIBBON, STORM.
+That is the case the landmarker exists for. Under flat or backlit conditions
+the shading-driven field is empty and the face reads as a blank silhouette.
+
+The **face detail** slider scales the effect; the PORTRAIT preset is built
+around it — slow, dense, high face weight, low body weight.
+
+Costs a second model download (cached) and a second inference per frame. If
+the landmarker fails to load, the segmenter and everything else carry on.

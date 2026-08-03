@@ -117,6 +117,7 @@
 
     <div class="presets">
       <button data-p="silk">SILK</button>
+      <button data-p="portrait">PORTRAIT</button>
       <button data-p="ember">EMBER</button>
       <button data-p="ghost">GHOST</button>
       <button data-p="ribbon">RIBBON</button>
@@ -128,6 +129,7 @@
       <button id="tParticles" class="on">LINES</button>
       <button id="tMesh">WASH</button>
     <button id="tMask">ME ONLY</button>
+    <button id="tRegion" class="on">OUTSIDE</button>
     </div>
 
     <div id="sliders"></div>
@@ -166,6 +168,7 @@ var P = {
   smooth:   0.10,  // how fast the field follows the camera
   speed:    0.32,  // how fast the lines travel
   deshake:  0.85,  // cancels whole-frame camera movement
+  face:     1.1,   // how hard the facial contours deflect lines
 };
 
 var SPECS = [
@@ -187,35 +190,42 @@ var SPECS = [
   ["smooth",    "smoothing", 0.02, 1,     0.01],
   ["speed",     "speed",     0.1,  2.5,   0.05],
   ["deshake",   "de-shake",  0,    1,     0.05],
+  ["face",      "face detail", 0,  2.5,   0.05],
 ];
 
 var PRESETS = {
   silk:    { feedback:.90, zoom:1.001, spin:.02, drift:.08, warp:9,
              chroma:5,  glow:.7,  hue:.04, sat:.5,  particles:820, trail:.85,
              thresh:.06, edge:1.0, body:.35, bleed:.07, smooth:.09,
-             speed:.30, deshake:.9 },
+             speed:.30, deshake:.9, face:1.0 },
+  portrait:{ feedback:.93, zoom:1.000, spin:.01, drift:.04, warp:6,
+             chroma:4,  glow:.8,  hue:.02, sat:.45, particles:900, trail:.95,
+             thresh:.07, edge:.7,  body:.25, bleed:.05, smooth:.08,
+             speed:.22, deshake:.95, face:2.1 },
   ember:   { feedback:.91, zoom:1.002, spin:.04, drift:.14, warp:16,
              chroma:8,  glow:.85, hue:.02, sat:.95, particles:760, trail:.9,
              thresh:.05, edge:1.3, body:.45, bleed:.06, smooth:.11,
-             speed:.38, deshake:.85 },
+             speed:.38, deshake:.85, face:1.3 },
   ghost:   { feedback:.95, zoom:1.000, spin:0,   drift:.05, warp:6,
              chroma:3,  glow:.42, hue:.02, sat:.2,  particles:560, trail:.95,
              thresh:.07, edge:1.5, body:.28, bleed:.04, smooth:.07,
-             speed:.22, deshake:.95 },
+             speed:.22, deshake:.95, face:.8 },
   ribbon:  { feedback:.78, zoom:1.000, spin:0,   drift:.06, warp:12,
              chroma:7,  glow:1.0, hue:.12, sat:.85, particles:480, trail:1,
              thresh:.05, edge:.9,  body:.4,  bleed:.13, smooth:.14,
-             speed:.55, deshake:.8 },
+             speed:.55, deshake:.8, face:1.4 },
   storm:   { feedback:.88, zoom:1.004, spin:.18, drift:.5,  warp:44,
              chroma:16, glow:.95, hue:.25, sat:1,   particles:900, trail:.6,
              thresh:.04, edge:.8,  body:.55, bleed:.08, smooth:.22,
-             speed:.9,  deshake:.6 },
+             speed:.9,  deshake:.6, face:.6 },
 };
 
 
 
 
+
 var mirror = true, useParticles = true, useMesh = false, useMask = false;
+var region = 1;   // 0 inside you, 1 outside you, 2 both
 
 /* ---------- build the sliders ---------- */
 var wrap = document.getElementById("sliders");
@@ -285,6 +295,17 @@ toggle("tMask", function () { return useMask; },
          }
        });
 
+(function () {
+  var el = document.getElementById("tRegion");
+  var names = ["INSIDE", "OUTSIDE", "BOTH"];
+  el.addEventListener("click", function () {
+    region = (region + 1) % 3;
+    el.textContent = names[region];
+    el.classList.toggle("on", true);
+    tracers.length = 0;        // reseed into the new region immediately
+  });
+})();
+
 document.getElementById("grip").addEventListener("click", function () {
   panel.classList.toggle("open");
 });
@@ -296,6 +317,8 @@ document.getElementById("grip").addEventListener("click", function () {
    subject can be emphasised. entirely optional — if the CDN is unreachable
    the toggle switches itself off and everything else carries on. */
 var segmenter = null, segReady = false, segTried = false, segErr = "";
+var faceLM = null, faceReady = false, faceConn = null;
+var faceCanvas = null, fctx = null;
 var MW = 64, MH = 48;                 // mask resolution on the flow grid
 var maskGrid = new Float32Array(MW * MH);
 var maskCanvas = document.createElement("canvas");
@@ -336,7 +359,14 @@ function buildField(arr, w, h, lumaSrc) {
       /* luminance dominates inside the mask, so the face and torso carry
          real contours. with a flat interior the gradient is zero and the
          only lines that appear are on the silhouette edge. */
-      fieldA[y * FW + x] = on ? (0.18 + l * 1.5) : 0;
+      var base = on ? (0.14 + l * 1.9) : 0;
+      /* face contours raise the field, so a streamline following a line of
+         constant value is deflected around an eyelid or a lip the same way
+         it is deflected around the body. */
+      if (faceSeen && P.face > 0) {
+        base += faceField[y * FW + x] * P.face * (on ? 1 : 0.35);
+      }
+      fieldA[y * FW + x] = base;
     }
   }
   /* separable box blur. a wide radius matters more than many small passes:
@@ -423,14 +453,24 @@ function contourAt(x, y) {
 var lumaField = new Float32Array(FW * FH);
 function buildLuma() {
   var d = sctx.getImageData(0, 0, SW, SH).data;
+  var lo = 1, hi = 0;
   for (var y = 0; y < FH; y++) {
     var ry = Math.floor(y * SH / FH);
     for (var x = 0; x < FW; x++) {
       var rx = Math.floor(x * SW / FW);
       var i = (ry * SW + rx) * 4;
-      lumaField[y * FW + x] =
-        (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) / 255;
+      var l = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) / 255;
+      lumaField[y * FW + x] = l;
+      if (l < lo) lo = l;
+      if (l > hi) hi = l;
     }
+  }
+  /* stretch to the full range. a backlit or evenly lit face has almost no
+     contrast, which leaves the interior field flat and gives the streamlines
+     nothing to follow — the reason lines only appeared around the edge. */
+  var span = Math.max(0.08, hi - lo);
+  for (var j = 0; j < lumaField.length; j++) {
+    lumaField[j] = (lumaField[j] - lo) / span;
   }
 }
 
@@ -465,6 +505,7 @@ function loadSegmenter() {
     .then(function (seg) {
       segmenter = seg; segReady = true;
       el.textContent = "ME ONLY";
+      loadFace();
     })
     .catch(function (e) {
       segErr = String(e && e.message ? e.message : e);
@@ -507,6 +548,122 @@ function matchAspect() {
     tint.width = SILW; tint.height = SILH;
     silImg = silctx.createImageData(SILW, SILH);
   }
+}
+
+/* ---------- face landmarks ----------
+   478 tracked points with real eye, lip, nose and brow geometry. the mask
+   gives the silhouette and the luminance gives soft shading; this adds the
+   hard structure that shading alone cannot resolve — eyelids, lip line,
+   nostrils, jaw. the contours are rasterised into the field so streamlines
+   wrap them the same way they wrap the body. */
+function loadFace() {
+  import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14")
+    .then(function (v) {
+      return v.FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+      ).then(function (fileset) {
+        return v.FaceLandmarker.createFromOptions(fileset, {
+          baseOptions: {
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/" +
+              "face_landmarker/face_landmarker/float16/1/face_landmarker.task",
+            delegate: "GPU",
+          },
+          runningMode: "VIDEO",
+          numFaces: 1,
+          outputFaceBlendshapes: false,
+          outputFacialTransformationMatrixes: false,
+        }).then(function (lm) {
+          // the connector sets are static on the class
+          faceConn = {
+            lips:   v.FaceLandmarker.FACE_LANDMARKS_LIPS,
+            lEye:   v.FaceLandmarker.FACE_LANDMARKS_LEFT_EYE,
+            rEye:   v.FaceLandmarker.FACE_LANDMARKS_RIGHT_EYE,
+            lBrow:  v.FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW,
+            rBrow:  v.FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW,
+            oval:   v.FaceLandmarker.FACE_LANDMARKS_FACE_OVAL,
+            lIris:  v.FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS,
+            rIris:  v.FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS,
+          };
+          faceLM = lm; faceReady = true;
+          faceCanvas = document.createElement("canvas");
+          faceCanvas.width = FW; faceCanvas.height = FH;
+          fctx = faceCanvas.getContext("2d", { willReadFrequently: true });
+        });
+      });
+    })
+    .catch(function () { faceReady = false; });
+}
+
+var faceField = new Float32Array(FW * FH);
+var faceSeen = false;
+
+function drawConn(pts, conn, w, alpha) {
+  if (!conn) return;
+  fctx.lineWidth = w;
+  fctx.strokeStyle = "rgba(255,255,255," + alpha + ")";
+  fctx.beginPath();
+  for (var i = 0; i < conn.length; i++) {
+    var a = pts[conn[i].start], b = pts[conn[i].end];
+    if (!a || !b) continue;
+    fctx.moveTo(a.x * FW, a.y * FH);
+    fctx.lineTo(b.x * FW, b.y * FH);
+  }
+  fctx.stroke();
+}
+
+function updateFace(tms) {
+  if (!faceReady || !faceLM || !fctx) return;
+  if (faceCanvas.width !== FW || faceCanvas.height !== FH) {
+    faceCanvas.width = FW; faceCanvas.height = FH;
+    faceField = new Float32Array(FW * FH);
+  }
+  try {
+    var res = faceLM.detectForVideo(cam, tms);
+    if (!res || !res.faceLandmarks || !res.faceLandmarks.length) {
+      faceSeen = false;
+      for (var z = 0; z < faceField.length; z++) faceField[z] *= 0.86;
+      return;
+    }
+    faceSeen = true;
+    var pts = res.faceLandmarks[0];
+
+    fctx.clearRect(0, 0, FW, FH);
+    fctx.lineCap = "round";
+    fctx.lineJoin = "round";
+    /* weighted by how much each feature should deflect a streamline. the
+       eyes and lips read hardest, the oval is a soft boundary. */
+    drawConn(pts, faceConn.oval,  2.2, 0.55);
+    drawConn(pts, faceConn.lBrow, 2.6, 0.85);
+    drawConn(pts, faceConn.rBrow, 2.6, 0.85);
+    drawConn(pts, faceConn.lEye,  2.4, 1.0);
+    drawConn(pts, faceConn.rEye,  2.4, 1.0);
+    drawConn(pts, faceConn.lips,  2.8, 1.0);
+    drawConn(pts, faceConn.lIris, 2.0, 0.9);
+    drawConn(pts, faceConn.rIris, 2.0, 0.9);
+
+    // the nose bridge and base, which have no connector set
+    var NOSE = [168, 6, 197, 195, 5, 4, 1, 19, 94, 2];
+    var WING = [98, 97, 2, 326, 327];
+    fctx.lineWidth = 2.4;
+    fctx.strokeStyle = "rgba(255,255,255,0.95)";
+    for (var g = 0; g < 2; g++) {
+      var set = g ? WING : NOSE;
+      fctx.beginPath();
+      for (var k = 0; k < set.length; k++) {
+        var q = pts[set[k]];
+        if (!q) continue;
+        if (k === 0) fctx.moveTo(q.x * FW, q.y * FH);
+        else fctx.lineTo(q.x * FW, q.y * FH);
+      }
+      fctx.stroke();
+    }
+
+    var d = fctx.getImageData(0, 0, FW, FH).data;
+    for (var i2 = 0; i2 < faceField.length; i2++) {
+      var v = d[i2 * 4 + 3] / 255;
+      faceField[i2] += (v - faceField[i2]) * 0.55;
+    }
+  } catch (e) { /* a dropped frame is not worth stopping for */ }
 }
 
 function updateMask(tms) {
@@ -568,6 +725,22 @@ function updateMask(tms) {
 
 /* how much of "you" is at this point, 0..1, plus an edge term so the
    silhouette itself reads strongest */
+/* raw coverage at a point, 0 outside you and 1 inside. maskAt adds an edge
+   term for weighting; this is the plain answer to "is this me". */
+function coverAt(u, v) {
+  if (!segReady) return 0;
+  var gx = Math.max(0, Math.min(MW - 1, Math.floor(u * MW)));
+  var gy = Math.max(0, Math.min(MH - 1, Math.floor(v * MH)));
+  return maskGrid[gy * MW + gx];
+}
+
+/* is a point in field space allowed for the current region? */
+function regionOK(fxp, fyp) {
+  if (region === 2) return true;
+  var c = coverAt(fxp / FW, fyp / FH);
+  return region === 0 ? c > 0.45 : c < 0.45;
+}
+
 function maskAt(u, v) {
   if (!useMask || !segReady) return 1;
   var gx = Math.max(0, Math.min(MW - 1, Math.floor(u * MW)));
@@ -674,19 +847,32 @@ function sampleFlow(u, v) {
    produces the woodgrain look in the references. */
 var tracers = [];
 function seedTracers(n) {
-  while (tracers.length < n) {
-    tracers.push({ x: Math.random() * FW, y: Math.random() * FH,
+  var guard = 0;
+  while (tracers.length < n && guard < n * 12) {
+    guard++;
+    var x = Math.random() * FW, y = Math.random() * FH;
+    if (!regionOK(x, y) && guard < n * 8) continue;
+    tracers.push({ x: x, y: y,
                    age: Math.random() * 90, life: 40 + Math.random() * 70 });
   }
   if (tracers.length > n) tracers.length = n;
 }
 function respawn(t) {
-  // prefer to start on the subject, where the field has structure
-  for (var i = 0; i < 8; i++) {
+  // land inside the chosen region, where the field also has structure
+  for (var i = 0; i < 14; i++) {
     var x = Math.random() * FW, y = Math.random() * FH;
-    if (fieldA[(y | 0) * FW + (x | 0)] > 0.22) {
+    if (!regionOK(x, y)) continue;
+    if (fieldA[(y | 0) * FW + (x | 0)] > 0.14) {
       t.x = x; t.y = y; t.age = 0;
       t.life = 40 + Math.random() * 70;
+      return;
+    }
+  }
+  for (var j = 0; j < 10; j++) {
+    var x2 = Math.random() * FW, y2 = Math.random() * FH;
+    if (regionOK(x2, y2)) {
+      t.x = x2; t.y = y2; t.age = 0;
+      t.life = 30 + Math.random() * 50;
       return;
     }
   }
@@ -721,7 +907,7 @@ function frame(t) {
   resize();
   matchAspect();
   computeFlow();
-  if (useMask && segReady) updateMask(t);
+  if (useMask && segReady) { updateFace(t); updateMask(t); }
 
   hue += P.hue * dt * 22;
 
@@ -833,7 +1019,7 @@ function frame(t) {
     for (var ti = 0; ti < tracers.length; ti++) {
       var tr = tracers[ti];
       var v = fsamp(tr.x, tr.y);
-      if (v < 0.10) { respawn(tr); continue; }
+      if (v < 0.10 || !regionOK(tr.x, tr.y)) { respawn(tr); continue; }
 
       // colour by the field value: interior and rim read differently
       var hh2 = (hue + v * 120 + ti * 0.7) % 360;
