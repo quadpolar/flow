@@ -55,19 +55,28 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 16 — dots and mesh separated
+## Build 17 — colour instead of white
 
-The mode button cycled FLOW / DOTS / MESH, where MESH meant dots plus mesh —
-so there was no way to see the wireframe on its own. It now cycles four ways:
+Additive blending sums RGB, so overlapping strands clip to white. Measured
+with a saturated blue-green strand:
 
-  FLOW   streamlines
-  DOTS   landmark dots only
-  MESH   wireframe only, no dots
-  BOTH   dots and wireframe
+  overlaps   additive saturation   screen saturation
+      2            0.60                 0.64
+      3            0.40                 0.51
+      5            0.00                 0.33
+      8            0.00                 0.17
 
-Verified: MESH draws the wireframe with zero dot calls, and all four
-combinations are independent.
+Screen compositing is 1-(1-a)(1-b), which approaches white asymptotically
+rather than clipping. There is a SCREEN / ADD toggle to compare.
 
-**Dot size** now has its own slider, 0.3 to 5.0. It was previously derived
-from the features slider, which fixed it at about 2.1px radius and made it
-impossible to thin out at high dot counts.
+Blend alone was not enough. A light strand still washes out, because it
+starts close to white. Base lightness dropped from 58% to around 34%, with
+saturation raised — after five overlaps that takes surviving saturation from
+0.32 to 0.84.
+
+Hue also barely varied: it was hue + fieldValue*120 + index*0.7, which is
+close to one colour per frame. It now includes position, so a strand crossing
+60 field cells sweeps about 84 degrees of hue and a run reads as a gradient.
+
+The rim, dots and mesh were all lightened the same way and got the same
+treatment.

@@ -137,6 +137,7 @@
     <button id="tMask">ME ONLY</button>
     <button id="tRegion" class="on">OUTSIDE</button>
     <button id="tMode" class="on">MODE&nbsp;FLOW</button>
+    <button id="tBlend" class="on">SCREEN</button>
     </div>
 
     <div id="sliders"></div>
@@ -164,8 +165,8 @@ var P = {
   warp:     10,     // mesh displacement in px per unit of flow
   chroma:   6,      // rgb channel separation
   glow:     1.0,   // brightness of the ink laid down
-  hue:      0.12,   // hue rotation per second
-  sat:      0.85,
+  hue:      0.18,   // hue rotation per second
+  sat:      0.95,
   particles: 2600,
   trail:    1.0,   // particle streak length
   thresh:   0.06,   // motion below this is ignored
@@ -210,35 +211,35 @@ var SPECS = [
 
 var PRESETS = {
   ribbon:  { feedback:.78, zoom:1.000, spin:0,   drift:.06, warp:12,
-             chroma:7,  glow:1.0, hue:.12, sat:.85, particles:2600, trail:1,
+             chroma:7,  glow:0.85, hue:0.18, sat:0.95, particles:2600, trail:1,
              thresh:.05, edge:.9,  body:.4,  bleed:.13, smooth:0.3,
              speed:.55, deshake:.8, face:.9, mesh:.9, detail:1.5,
-             contrast:1.4, dotsize:1.1   },
+             contrast:1.4, dotsize:1.1    },
   etch:    { feedback:.72, zoom:1.000, spin:0,   drift:.04, warp:8,
-             chroma:5,  glow:1.15,hue:.08, sat:.7,  particles:4200, trail:1,
+             chroma:5,  glow:0.9,hue:0.12, sat:0.85,  particles:4200, trail:1,
              thresh:.05, edge:.7,  body:.3,  bleed:.16, smooth:0.28,
              speed:.42, deshake:.9, face:.75, mesh:1.5, detail:1,
-             contrast:2.1, dotsize:0.7   },
+             contrast:2.1, dotsize:0.7    },
   skin:    { feedback:.84, zoom:1.000, spin:.01, drift:.05, warp:10,
-             chroma:6,  glow:.95, hue:.06, sat:.6,  particles:3800, trail:.95,
+             chroma:6,  glow:0.8, hue:0.1, sat:0.8,  particles:3800, trail:.95,
              thresh:.06, edge:.8,  body:.28, bleed:.10, smooth:0.26,
              speed:.4,  deshake:.9, face:.5, mesh:1.8, detail:1,
-             contrast:2.6, dotsize:0.9   },
+             contrast:2.6, dotsize:0.9    },
   silk:    { feedback:.90, zoom:1.001, spin:.02, drift:.08, warp:9,
-             chroma:5,  glow:.7,  hue:.04, sat:.5,  particles:3000, trail:.85,
+             chroma:5,  glow:0.65,  hue:0.08, sat:0.7,  particles:3000, trail:.85,
              thresh:.06, edge:1.0, body:.35, bleed:.07, smooth:0.24,
              speed:.30, deshake:.9, face:.9, mesh:.8, detail:2,
-             contrast:1.2, dotsize:1.2   },
+             contrast:1.2, dotsize:1.2    },
   ghost:   { feedback:.95, zoom:1.000, spin:0,   drift:.05, warp:6,
-             chroma:3,  glow:.42, hue:.02, sat:.2,  particles:2200, trail:.95,
+             chroma:3,  glow:0.45, hue:0.05, sat:0.35,  particles:2200, trail:.95,
              thresh:.07, edge:1.5, body:.28, bleed:.04, smooth:0.18,
              speed:.22, deshake:.95, face:.8, mesh:.6, detail:2.5,
-             contrast:.9, dotsize:0.8   },
+             contrast:.9, dotsize:0.8    },
   storm:   { feedback:.88, zoom:1.004, spin:.18, drift:.5,  warp:44,
-             chroma:16, glow:.95, hue:.25, sat:1,   particles:4000, trail:.6,
+             chroma:16, glow:0.85, hue:0.35, sat:1,   particles:4000, trail:.6,
              thresh:.04, edge:.8,  body:.55, bleed:.08, smooth:0.45,
              speed:.9,  deshake:.6, face:.6, mesh:.7, detail:2,
-             contrast:1.0, dotsize:1.4   },
+             contrast:1.0, dotsize:1.4    },
 };
 
 
@@ -249,6 +250,7 @@ var PRESETS = {
 var mirror = true, useParticles = true, useMesh = false, useMask = false;
 var region = 1;   // 0 inside you, 1 outside you, 2 both
 var mode = 0;     // 0 flow, 1 dots, 2 mesh only, 3 dots + mesh
+var blend = "screen";   // screen keeps hue, lighter goes white
 
 /* ---------- build the sliders ---------- */
 var wrap = document.getElementById("sliders");
@@ -332,6 +334,14 @@ toggle("tMask", function () { return useMask; },
            if (r) { r.input.value = P.body; r.out.textContent = fmt(P.body, r.step); }
          }
        });
+
+(function () {
+  var el = document.getElementById("tBlend");
+  el.addEventListener("click", function () {
+    blend = blend === "screen" ? "lighter" : "screen";
+    el.textContent = blend === "screen" ? "SCREEN" : "ADD";
+  });
+})();
 
 (function () {
   var el = document.getElementById("tMode");
@@ -1100,7 +1110,7 @@ function frame(t) {
   if (useMesh) {
     /* a faint wash of the motion grid, well under the streamlines. the old
        full-alpha blocks were half of what made it burn out. */
-    ctx.globalCompositeOperation = "lighter";
+    ctx.globalCompositeOperation = blend;
     var cwid = W / COLS, chgt = H / ROWS;
     for (var gy2 = 0; gy2 < ROWS; gy2++) {
       for (var gx2 = 0; gx2 < COLS; gx2++) {
@@ -1134,10 +1144,10 @@ function frame(t) {
     tctx.clearRect(0, 0, SILW, SILH);
     tctx.drawImage(rim, 0, 0);
     tctx.globalCompositeOperation = "source-in";
-    tctx.fillStyle = "hsl(" + ((hue % 360 + 360) % 360) + ",92%,64%)";
+    tctx.fillStyle = "hsl(" + ((hue % 360 + 360) % 360) + ",95%,46%)";
     tctx.fillRect(0, 0, SILW, SILH);
 
-    ctx.globalCompositeOperation = "lighter";
+    ctx.globalCompositeOperation = blend;
     ctx.globalAlpha = Math.min(0.85, 0.45 * P.body);
     var cr = coverRect();
     ctx.drawImage(tint, cr.x, cr.y, cr.w, cr.h);
@@ -1150,10 +1160,10 @@ function frame(t) {
   if (mode > 0 && facePts && faceSeen) {
     var crm = coverRect();
     var hh3 = (hue % 360 + 360) % 360;
-    ctx.globalCompositeOperation = "lighter";
+    ctx.globalCompositeOperation = blend;
 
     if ((mode === 2 || mode === 3) && faceConn && faceConn.mesh) {
-      ctx.strokeStyle = "hsla(" + hh3 + ",85%,58%," +
+      ctx.strokeStyle = "hsla(" + hh3 + ",88%,42%," +
                         (0.16 + P.mesh * 0.13) + ")";
       ctx.lineWidth = 0.6;
       ctx.beginPath();
@@ -1213,7 +1223,7 @@ function frame(t) {
   if (mode === 0 && useParticles && P.particles > 0 &&
       useMask && segReady) {
     seedTracers(Math.round(P.particles));
-    ctx.globalCompositeOperation = "lighter";
+    ctx.globalCompositeOperation = blend;
     ctx.lineCap = "round";
     var cr2 = coverRect();
     var sx2 = cr2.w / FW, sy2 = cr2.h / FH;
@@ -1229,11 +1239,17 @@ function frame(t) {
       }
 
       // colour by the field value: interior and rim read differently
-      var hh2 = (hue + v * 120 + ti * 0.7) % 360;
+      // spread hue across the field value and position, so a run of
+      // strands is a gradient rather than one colour going white
+      var hh2 = (hue + v * 190 + tr.x * 1.4 + tr.y * 0.9) % 360;
       var fade = 1 - tr.age / tr.life;
+      /* a lighter strand reaches white after very few overlaps. keeping
+         the base dark and highly saturated means overlap builds colour
+         instead — measured, surviving saturation after five overlaps goes
+         from 32% at L=58 to 84% at L=34. */
       ctx.strokeStyle = "hsl(" + hh2 + "," +
-        Math.round(55 + P.sat * 45) + "%," +
-        Math.round(38 + v * 34) + "%)";
+        Math.round(62 + P.sat * 38) + "%," +
+        Math.round(20 + v * 22 + P.glow * 8) + "%)";
       ctx.lineWidth = 0.45 + v * 0.9;
       ctx.globalAlpha = Math.min(0.9, (0.14 + v * 0.5) * P.glow *
                                       Math.max(0, fade));
