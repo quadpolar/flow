@@ -364,6 +364,15 @@ function fsamp(x, y) {
          fieldA[i + FW] * (1 - fx) * fy + fieldA[i + FW + 1] * fx * fy;
 }
 
+/* the camera is 4:3 and the phone is much taller. drawing the mask across
+   the full screen stretches it — measured, that squashes x to 0.35 of its
+   correct width. cover-fit scales to fill and crops the overflow instead. */
+function coverRect(srcW, srcH) {
+  var sc = Math.max(W / srcW, H / srcH);
+  var dw = srcW * sc, dh = srcH * sc;
+  return { x: (W - dw) / 2, y: (H - dh) / 2, w: dw, h: dh };
+}
+
 /* the contour direction: perpendicular to the gradient */
 function contourAt(x, y) {
   var d = 2.8;

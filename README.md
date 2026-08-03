@@ -53,3 +53,23 @@ inside the mask, taking cells with signal from 2,575 to 9,308.
 
 That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
+
+
+## Build 7 — nothing was drawing
+
+Build 6 rendered a black screen. The field itself was healthy — 8,589 cells
+above the draw threshold in a headless test — but zero lines were being
+drawn.
+
+The cause: the `coverRect` helper was inserted immediately before
+`function fsamp`, and a later edit replaced that same anchor text. The helper
+was silently removed while three call sites remained, so the first frame threw
+`ReferenceError: coverRect is not defined` and the render aborted before any
+line was stroked.
+
+It threw inside `requestAnimationFrame`, so nothing surfaced in the UI — the
+screen simply stayed black.
+
+Fixed by restoring the helper against a stable anchor, and verified by
+running actual frames through a canvas mock that counts draw calls: 3,318
+strokes and 38,538 line segments across six frames, spanning the full screen.
