@@ -1,0 +1,11 @@
+{
+  "name": "Flow",
+  "short_name": "Flow",
+  "description": "Your camera drives the visuals. Optical flow, live.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07060B",
+  "theme_color": "#07060B"
+}

@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no,maximum-scale=1">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Flow">
+<meta name="theme-color" content="#07060B">
+<title>Flow</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box;
+      -webkit-tap-highlight-color:transparent; }
+  html, body {
+    position:fixed; inset:0; overflow:hidden; background:#07060B;
+    overscroll-behavior:none; -webkit-user-select:none; user-select:none;
+    font:500 13px/1.35 -apple-system,'Helvetica Neue',Inter,system-ui,sans-serif;
+    color:#EDE9F5;
+  }
+  #stage { position:fixed; inset:0; }
+  #view  { position:absolute; inset:0; display:block;
+           width:100%; height:100%; }
+  video  { position:absolute; width:1px; height:1px; opacity:0;
+           pointer-events:none; }
+
+  /* start gate — camera needs a user gesture */
+  #gate {
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:18px; text-align:center;
+    padding:32px; background:#07060B; z-index:5;
+  }
+  #gate h1 { font-size:34px; font-weight:800; letter-spacing:-.03em; }
+  #gate p  { max-width:300px; opacity:.55; font-size:13px; }
+  #go {
+    margin-top:6px; padding:15px 40px; border:0; border-radius:30px;
+    background:#C9F24A; color:#0C1004; font-weight:800; font-size:15px;
+    letter-spacing:.04em; cursor:pointer;
+  }
+  #err { color:#FF8A7A; font-size:12px; max-width:300px; min-height:16px; }
+
+  /* controls */
+  #panel {
+    position:absolute; left:0; right:0; bottom:0; z-index:4;
+    background:rgba(12,10,20,.82); backdrop-filter:blur(18px);
+    -webkit-backdrop-filter:blur(18px);
+    border-top:1px solid rgba(255,255,255,.09);
+    padding:10px 14px calc(14px + env(safe-area-inset-bottom));
+    transform:translateY(calc(100% - 46px)); transition:transform .28s ease;
+    max-height:74vh; overflow-y:auto; -webkit-overflow-scrolling:touch;
+  }
+  #panel.open { transform:translateY(0); }
+  #grip {
+    height:26px; display:flex; align-items:center; justify-content:center;
+    gap:9px; cursor:pointer; font-size:11px; letter-spacing:.14em;
+    text-transform:uppercase; opacity:.65;
+  }
+  #grip::before {
+    content:''; width:34px; height:4px; border-radius:2px;
+    background:rgba(255,255,255,.3);
+  }
+  .presets { display:flex; gap:7px; flex-wrap:wrap; margin:10px 0 14px; }
+  .presets button {
+    flex:1 1 auto; padding:9px 4px; border:1px solid rgba(255,255,255,.14);
+    border-radius:11px; background:rgba(255,255,255,.05); color:#EDE9F5;
+    font:700 11px/1 inherit; letter-spacing:.05em; cursor:pointer;
+  }
+  .presets button:active { background:rgba(201,242,74,.22); }
+  .row { margin-bottom:11px; }
+  .row label {
+    display:flex; justify-content:space-between; font-size:11px;
+    letter-spacing:.05em; text-transform:uppercase; opacity:.62;
+    margin-bottom:5px;
+  }
+  .row label b { font-weight:700; opacity:.95; font-variant-numeric:tabular-nums; }
+  input[type=range] {
+    -webkit-appearance:none; width:100%; height:22px; background:transparent;
+  }
+  input[type=range]::-webkit-slider-runnable-track {
+    height:3px; border-radius:2px; background:rgba(255,255,255,.16);
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance:none; width:19px; height:19px; margin-top:-8px;
+    border-radius:50%; background:#C9F24A;
+  }
+  input[type=range]::-moz-range-track {
+    height:3px; border-radius:2px; background:rgba(255,255,255,.16);
+  }
+  input[type=range]::-moz-range-thumb {
+    width:19px; height:19px; border:0; border-radius:50%; background:#C9F24A;
+  }
+  .toggles { display:flex; gap:7px; margin-top:4px; }
+  .toggles button {
+    flex:1; padding:9px 4px; border:1px solid rgba(255,255,255,.14);
+    border-radius:11px; background:rgba(255,255,255,.05); color:#EDE9F5;
+    font:700 11px/1 inherit; letter-spacing:.05em; cursor:pointer;
+  }
+  .toggles button.on { background:#C9F24A; color:#0C1004; border-color:#C9F24A; }
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="view"></canvas>
+  <video id="cam" playsinline autoplay muted></video>
+
+  <div id="gate">
+    <h1>Flow</h1>
+    <p>Your camera drives the visuals. Nothing is recorded, nothing leaves
+       this device.</p>
+    <button id="go">START CAMERA</button>
+    <div id="err"></div>
+  </div>
+
+  <div id="panel">
+    <div id="grip">controls</div>
+
+    <div class="presets">
+      <button data-p="smoke">SMOKE</button>
+      <button data-p="tunnel">TUNNEL</button>
+      <button data-p="oil">OIL</button>
+      <button data-p="ghost">GHOST</button>
+      <button data-p="shatter">SHATTER</button>
+    </div>
+
+    <div class="toggles">
+      <button id="tMirror" class="on">MIRROR</button>
+      <button id="tParticles" class="on">PARTICLES</button>
+      <button id="tMesh" class="on">MESH</button>
+    </div>
+
+    <div id="sliders"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+"use strict";
+
+var view = document.getElementById("view");
+var cam = document.getElementById("cam");
+var gate = document.getElementById("gate");
+var errEl = document.getElementById("err");
+var panel = document.getElementById("panel");
+var ctx = view.getContext("2d");
+
+/* ---------- parameters. every one is read fresh each frame, so a slider
+   changes the piece immediately with no restart ---------- */
+var P = {
+  feedback: 0.90,   // how much of the last frame is kept
+  zoom:     1.010,  // scale applied to the feedback each frame
+  spin:     0.20,   // degrees of rotation on the feedback
+  drift:    0.55,   // how far the feedback is pushed by the flow
+  warp:     34,     // mesh displacement in px per unit of flow
+  chroma:   7,      // rgb channel separation
+  glow:     0.55,   // brightness of the ink laid down
+  hue:      0.35,   // hue rotation per second
+  sat:      0.85,
+  particles: 260,
+  trail:    0.55,   // particle streak length
+  thresh:   0.06,   // motion below this is ignored
+};
+
+var SPECS = [
+  ["feedback",  "feedback",  0,    0.99,  0.01],
+  ["zoom",      "zoom",      0.97, 1.05,  0.001],
+  ["spin",      "spin",     -3,    3,     0.05],
+  ["drift",     "drift",     0,    3,     0.05],
+  ["warp",      "warp",      0,    140,   1],
+  ["chroma",    "chroma",    0,    40,    1],
+  ["glow",      "ink",       0,    1.6,   0.05],
+  ["hue",       "hue drift", -2,   2,     0.05],
+  ["sat",       "saturation",0,    1,     0.05],
+  ["particles", "particles", 0,    900,   10],
+  ["trail",     "streak",    0,    1,     0.05],
+  ["thresh",    "threshold", 0,    0.3,   0.005],
+];
+
+var PRESETS = {
+  smoke:   { feedback:.93, zoom:1.006, spin:.15, drift:1.4, warp:26,
+             chroma:4,  glow:.5,  hue:.2,  sat:.7,  particles:420, trail:.75,
+             thresh:.05 },
+  tunnel:  { feedback:.96, zoom:1.032, spin:1.1, drift:.3,  warp:14,
+             chroma:12, glow:.75, hue:.9,  sat:1,   particles:120, trail:.4,
+             thresh:.07 },
+  oil:     { feedback:.88, zoom:1.002, spin:-.4, drift:2.2, warp:96,
+             chroma:26, glow:.6,  hue:1.4, sat:1,   particles:0,   trail:.5,
+             thresh:.04 },
+  ghost:   { feedback:.985,zoom:1.000, spin:0,   drift:.1,  warp:8,
+             chroma:2,  glow:.32, hue:.06, sat:.35, particles:80,  trail:.9,
+             thresh:.09 },
+  shatter: { feedback:.72, zoom:0.985, spin:2.4, drift:2.6, warp:128,
+             chroma:34, glow:1.15,hue:-1.2,sat:1,   particles:760, trail:.25,
+             thresh:.03 },
+};
+
+var mirror = true, useParticles = true, useMesh = true;
+
+/* ---------- build the sliders ---------- */
+var wrap = document.getElementById("sliders");
+var readouts = {};
+SPECS.forEach(function (sp) {
+  var key = sp[0];
+  var row = document.createElement("div");
+  row.className = "row";
+  row.innerHTML = '<label>' + sp[1] + ' <b></b></label>' +
+    '<input type="range" min="' + sp[2] + '" max="' + sp[3] +
+    '" step="' + sp[4] + '">';
+  var input = row.querySelector("input");
+  var out = row.querySelector("b");
+  readouts[key] = { input: input, out: out, step: sp[4] };
+  input.value = P[key];
+  out.textContent = fmt(P[key], sp[4]);
+  input.addEventListener("input", function () {
+    P[key] = parseFloat(input.value);
+    out.textContent = fmt(P[key], sp[4]);
+  });
+  wrap.appendChild(row);
+});
+
+function fmt(v, step) {
+  var d = step >= 1 ? 0 : String(step).split(".")[1].length;
+  return v.toFixed(d);
+}
+
+function syncUI() {
+  SPECS.forEach(function (sp) {
+    var r = readouts[sp[0]];
+    r.input.value = P[sp[0]];
+    r.out.textContent = fmt(P[sp[0]], r.step);
+  });
+}
+
+document.querySelectorAll(".presets button").forEach(function (b) {
+  b.addEventListener("click", function () {
+    var pr = PRESETS[b.dataset.p];
+    for (var k in pr) P[k] = pr[k];
+    syncUI();
+  });
+});
+
+function toggle(id, get, set) {
+  var el = document.getElementById(id);
+  el.addEventListener("click", function () {
+    set(!get());
+    el.classList.toggle("on", get());
+  });
+}
+toggle("tMirror", function () { return mirror; },
+       function (v) { mirror = v; });
+toggle("tParticles", function () { return useParticles; },
+       function (v) { useParticles = v; });
+toggle("tMesh", function () { return useMesh; },
+       function (v) { useMesh = v; });
+
+document.getElementById("grip").addEventListener("click", function () {
+  panel.classList.toggle("open");
+});
+
+/* ---------- optical flow ----------
+   the video is drawn into a small hidden canvas, and each cell is compared
+   with the same cell in the previous frame. shifting the cell by one step in
+   each direction and taking whichever shift best explains the change gives a
+   direction — that is the flow. no model, no face detection, works in any
+   light and responds to hands and background too. */
+var SW = 160, SH = 120;         // sampling resolution
+var COLS = 32, ROWS = 24;       // flow grid
+var small = document.createElement("canvas");
+small.width = SW; small.height = SH;
+var sctx = small.getContext("2d", { willReadFrequently: true });
+
+var prev = null;
+var fx = new Float32Array(COLS * ROWS);
+var fy = new Float32Array(COLS * ROWS);
+var fm = new Float32Array(COLS * ROWS);
+
+function lum(d, x, y) {
+  var i = (y * SW + x) * 4;
+  return (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) / 255;
+}
+
+function computeFlow() {
+  sctx.drawImage(cam, 0, 0, SW, SH);
+  var cur = sctx.getImageData(0, 0, SW, SH).data;
+  if (!prev) { prev = cur; return; }
+
+  var cw = SW / COLS, ch = SH / ROWS;
+  for (var gy = 0; gy < ROWS; gy++) {
+    for (var gx = 0; gx < COLS; gx++) {
+      var px = Math.floor(gx * cw + cw / 2);
+      var py = Math.floor(gy * ch + ch / 2);
+      if (px < 2 || py < 2 || px > SW - 3 || py > SH - 3) continue;
+
+      var diff = 0, n = 0;
+      for (var oy = -1; oy <= 1; oy++) {
+        for (var ox = -1; ox <= 1; ox++) {
+          diff += Math.abs(lum(cur, px + ox, py + oy) -
+                           lum(prev, px + ox, py + oy));
+          n++;
+        }
+      }
+      diff /= n;
+
+      // spatial gradient of the current frame
+      var gxv = lum(cur, px + 2, py) - lum(cur, px - 2, py);
+      var gyv = lum(cur, px, py + 2) - lum(cur, px, py - 2);
+      // temporal difference
+      var dt = lum(cur, px, py) - lum(prev, px, py);
+      var g2 = gxv * gxv + gyv * gyv + 1e-4;
+
+      var i = gy * COLS + gx;
+      var vx = -dt * gxv / g2;
+      var vy = -dt * gyv / g2;
+      vx = Math.max(-3, Math.min(3, vx));
+      vy = Math.max(-3, Math.min(3, vy));
+      // smooth over time so the field is fluid rather than jittery
+      fx[i] += (vx - fx[i]) * 0.35;
+      fy[i] += (vy - fy[i]) * 0.35;
+      fm[i] += (diff - fm[i]) * 0.4;
+    }
+  }
+  prev = cur;
+}
+
+function sampleFlow(u, v) {
+  var gx = Math.max(0, Math.min(COLS - 1, Math.floor(u * COLS)));
+  var gy = Math.max(0, Math.min(ROWS - 1, Math.floor(v * ROWS)));
+  var i = gy * COLS + gx;
+  return { x: fx[i], y: fy[i], m: fm[i] };
+}
+
+/* ---------- particles ---------- */
+var parts = [];
+function seedParticles(n, W, H) {
+  while (parts.length < n) {
+    parts.push({ x: Math.random() * W, y: Math.random() * H,
+                 vx: 0, vy: 0, life: Math.random() });
+  }
+  if (parts.length > n) parts.length = n;
+}
+
+/* ---------- render ---------- */
+var W = 0, H = 0, dpr = 1, hue = 0, raf = 0, last = 0, running = false;
+var buf = document.createElement("canvas");
+var bctx = buf.getContext("2d");
+
+function resize() {
+  var r = document.getElementById("stage").getBoundingClientRect();
+  var w = Math.max(Math.round(r.width), window.innerWidth || 0, 1);
+  var h = Math.max(Math.round(r.height), window.innerHeight || 0,
+                   document.documentElement.clientHeight || 0, 1);
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  if (w === W && h === H) return;
+  W = w; H = h;
+  view.width = Math.round(W * dpr); view.height = Math.round(H * dpr);
+  buf.width = view.width; buf.height = view.height;
+}
+window.addEventListener("resize", resize);
+window.addEventListener("orientationchange", resize);
+
+function frame(t) {
+  raf = requestAnimationFrame(frame);
+  if (!running) return;
+  var dt = Math.min(0.05, (t - last) / 1000 || 0.016);
+  last = t;
+  resize();
+  computeFlow();
+
+  hue += P.hue * dt * 60;
+
+  var cw = view.width, chh = view.height;
+
+  /* 1. feedback — the previous frame, scaled, rotated and pushed by the
+        overall drift of the flow. this is what makes tunnels and smears. */
+  var avx = 0, avy = 0, tot = 0;
+  for (var i = 0; i < fm.length; i++) {
+    if (fm[i] > P.thresh) { avx += fx[i]; avy += fy[i]; tot++; }
+  }
+  if (tot) { avx /= tot; avy /= tot; }
+
+  bctx.setTransform(1, 0, 0, 1, 0, 0);
+  bctx.clearRect(0, 0, cw, chh);
+  bctx.globalAlpha = P.feedback;
+  bctx.save();
+  bctx.translate(cw / 2 + avx * P.drift * 40 * dpr,
+                 chh / 2 + avy * P.drift * 40 * dpr);
+  bctx.rotate(P.spin * Math.PI / 180);
+  bctx.scale(P.zoom, P.zoom);
+  bctx.drawImage(view, -cw / 2, -chh / 2, cw, chh);
+  bctx.restore();
+  bctx.globalAlpha = 1;
+
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = "#07060B";
+  ctx.fillRect(0, 0, cw, chh);
+  ctx.drawImage(buf, 0, 0);
+
+  ctx.save();
+  ctx.scale(dpr, dpr);
+  if (mirror) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+
+  /* 2. mesh — the video drawn as a grid of cells, each displaced by the
+        flow at that point, with the rgb channels pulled apart */
+  if (useMesh) {
+    ctx.globalCompositeOperation = "lighter";
+    var cwid = W / COLS, chgt = H / ROWS;
+    var chan = [["#FF0040", -1], ["#00FF88", 0], ["#3060FF", 1]];
+    for (var c = 0; c < 3; c++) {
+      ctx.globalAlpha = P.glow * 0.5 * (0.4 + P.sat * 0.6);
+      ctx.fillStyle = chan[c][0];
+      var off = chan[c][1] * P.chroma;
+      for (var gy2 = 0; gy2 < ROWS; gy2++) {
+        for (var gx2 = 0; gx2 < COLS; gx2++) {
+          var idx = gy2 * COLS + gx2;
+          var m = fm[idx];
+          if (m <= P.thresh) continue;
+          var dx = fx[idx] * P.warp + off;
+          var dy = fy[idx] * P.warp;
+          var a = Math.min(1, (m - P.thresh) * 9);
+          ctx.globalAlpha = a * P.glow * 0.55;
+          ctx.fillRect(gx2 * cwid + dx, gy2 * chgt + dy,
+                       cwid * 1.15, chgt * 1.15);
+        }
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  /* 3. particles carried by the field */
+  if (useParticles && P.particles > 0) {
+    seedParticles(Math.round(P.particles), W, H);
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    for (var pi = 0; pi < parts.length; pi++) {
+      var p = parts[pi];
+      var f = sampleFlow(p.x / W, p.y / H);
+      p.vx += f.x * 260 * dt;
+      p.vy += f.y * 260 * dt;
+      p.vx *= 0.94; p.vy *= 0.94;
+      var ox2 = p.x, oy2 = p.y;
+      p.x += p.vx; p.y += p.vy;
+      p.life -= dt * 0.25;
+      if (p.life <= 0 || p.x < -20 || p.x > W + 20 ||
+          p.y < -20 || p.y > H + 20) {
+        p.x = Math.random() * W; p.y = Math.random() * H;
+        p.vx = p.vy = 0; p.life = 1;
+      }
+      var sp = Math.hypot(p.vx, p.vy);
+      if (sp < 0.3) continue;
+      var hh = (hue + sp * 9 + pi * 0.4) % 360;
+      ctx.strokeStyle = "hsl(" + hh + "," +
+        Math.round(60 + P.sat * 40) + "%," +
+        Math.round(46 + Math.min(30, sp * 3)) + "%)";
+      ctx.lineWidth = 1 + Math.min(3, sp * 0.25);
+      ctx.globalAlpha = Math.min(0.85, sp * 0.13) * (0.4 + P.glow * 0.6);
+      ctx.beginPath();
+      ctx.moveTo(ox2 - p.vx * P.trail * 3, oy2 - p.vy * P.trail * 3);
+      ctx.lineTo(p.x, p.y);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  ctx.restore();
+  ctx.globalCompositeOperation = "source-over";
+}
+
+/* ---------- start ---------- */
+document.getElementById("go").addEventListener("click", function () {
+  errEl.textContent = "";
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    errEl.textContent = "This browser has no camera API. Needs HTTPS.";
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+    audio: false,
+  }).then(function (stream) {
+    cam.srcObject = stream;
+    return cam.play();
+  }).then(function () {
+    gate.style.display = "none";
+    panel.classList.add("open");
+    resize();
+    running = true;
+    last = performance.now();
+    if (!raf) raf = requestAnimationFrame(frame);
+    setTimeout(function () { panel.classList.remove("open"); }, 2600);
+  }).catch(function (e) {
+    errEl.textContent = "Camera blocked: " + (e && e.name ? e.name : e) +
+      ". Needs HTTPS and permission.";
+  });
+});
+
+resize();
+})();
+</script>
+</body>
+</html>
