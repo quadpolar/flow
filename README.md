@@ -55,28 +55,29 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 12 — density and a panel you can see past
+## Build 13 — the face surface
 
-**Why the face read as sparse.** A flat patch of cheek has no gradient, so a
-tracer landing there is retired immediately and that area stays empty. The
-features were resolving correctly — there simply were not enough surviving
-strands to read as a surface.
+Two things were limiting facial detail.
 
-The field now carries a gentle built-in slope inside the mask: weak enough
-that real shading and the landmarks still determine the shape, strong enough
-that flow exists everywhere on the body. Measured under perfectly flat
-lighting, interior cells carrying usable flow went from patchy to 100%.
+**Only outlines were being drawn.** The landmarker was supplying eyes, brows,
+nose, lips and the face oval — roughly 220 line segments describing feature
+BOUNDARIES. FACE_LANDMARKS_TESSELATION is the full triangulated mesh over all
+468 points, about 2,600 connections covering the actual surface: cheeks, jaw,
+forehead, the bridge of the nose. That is now drawn first, very faint, under
+the features. There is a **face mesh** slider for it.
 
-Line count raised from 1100 to 3200 by default, ceiling 6000, and strands
-survive to a lower field value. Draw calls went from 5,885 to 17,096 per six
-frames.
+**The outlines were swamping everything else.** A feature ridge sat at roughly
+1.4 in field terms against an interior of 0.3-0.7, so streamlines collapsed
+onto the ridges and the surface between them stayed empty — the face read as a
+mask with holes cut in it. Ridge weights are roughly halved and the luminance
+term is up from 1.5 to 2.4, so real skin shading competes.
 
-**The panel.** It was rgba(12,10,20,.82) over an 18px backdrop blur, which is
-opaque for practical purposes — the scrub-transparency added in build 11 was
-fighting a blur that never went away. Now:
+Presets rebuilt around RIBBON, which is now the default state. ETCH and SKIN
+are new: both lean hard on the mesh and local contrast rather than the feature
+outlines.
 
-- base background .34 alpha, no blur at all
-- .06 alpha while a slider is being dragged
-- max height 46vh instead of 74vh, tighter rows, so it covers far less
-- labels carry a text shadow so they survive on a transparent ground
-- tapping the picture closes the panel outright
+## On depth
+There is no way to reach the TrueDepth sensor from Safari. iOS exposes no
+depth API to the web at all, and no permission unlocks it — a native app can,
+a web app cannot. Everything here is derived from the colour image: person
+segmentation, face landmarks, and local contrast.

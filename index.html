@@ -122,11 +122,11 @@
     <div id="grip">controls</div>
 
     <div class="presets">
-      <button data-p="silk">SILK</button>
-      <button data-p="portrait">PORTRAIT</button>
-      <button data-p="ember">EMBER</button>
-      <button data-p="ghost">GHOST</button>
       <button data-p="ribbon">RIBBON</button>
+      <button data-p="etch">ETCH</button>
+      <button data-p="skin">SKIN</button>
+      <button data-p="silk">SILK</button>
+      <button data-p="ghost">GHOST</button>
       <button data-p="storm">STORM</button>
     </div>
 
@@ -156,25 +156,26 @@ var ctx = view.getContext("2d");
 /* ---------- parameters. every one is read fresh each frame, so a slider
    changes the piece immediately with no restart ---------- */
 var P = {
-  feedback: 0.82,   // how much of the last frame is kept
+  feedback: 0.78,   // how much of the last frame is kept
   zoom:     1.002,  // scale applied to the feedback each frame
   spin:     0.02,   // degrees of rotation on the feedback
   drift:    0.08,   // how far the feedback is pushed by the flow
   warp:     10,     // mesh displacement in px per unit of flow
   chroma:   6,      // rgb channel separation
-  glow:     0.75,   // brightness of the ink laid down
-  hue:      0.03,   // hue rotation per second
+  glow:     1.0,   // brightness of the ink laid down
+  hue:      0.12,   // hue rotation per second
   sat:      0.85,
-  particles: 3200,
-  trail:    0.85,   // particle streak length
+  particles: 2600,
+  trail:    1.0,   // particle streak length
   thresh:   0.06,   // motion below this is ignored
   edge:     1.2,    // how much the outline of you is favoured
   body:     0.35,    // how strongly your silhouette is drawn
-  bleed:    0.10,  // stops light accumulating to white
+  bleed:    0.13,  // stops light accumulating to white
   smooth:   0.10,  // how fast the field follows the camera
-  speed:    0.32,  // how fast the lines travel
+  speed:    0.55,  // how fast the lines travel
   deshake:  0.85,  // cancels whole-frame camera movement
-  face:     1.1,   // how hard the facial contours deflect lines
+  face:     0.9,   // how hard the feature outlines deflect lines
+  mesh:     0.9,   // the full facial surface mesh
   detail:   1.5,   // blur radius: low keeps features, high is smooth
   contrast: 1.4,   // local contrast lifted out of the camera image
 };
@@ -198,37 +199,45 @@ var SPECS = [
   ["smooth",    "smoothing", 0.02, 1,     0.01],
   ["speed",     "speed",     0.1,  2.5,   0.05],
   ["deshake",   "de-shake",  0,    1,     0.05],
-  ["face",      "face detail", 0,  2.5,   0.05],
+  ["face",      "features",  0,    2.5,   0.05],
+  ["mesh",      "face mesh", 0,    2,     0.05],
   ["detail",    "smoothness", 1,   5,     0.5],
   ["contrast",  "contrast",  0,    3,     0.05],
 ];
 
 var PRESETS = {
+  ribbon:  { feedback:.78, zoom:1.000, spin:0,   drift:.06, warp:12,
+             chroma:7,  glow:1.0, hue:.12, sat:.85, particles:2600, trail:1,
+             thresh:.05, edge:.9,  body:.4,  bleed:.13, smooth:.14,
+             speed:.55, deshake:.8, face:.9, mesh:.9, detail:1.5,
+             contrast:1.4 },
+  etch:    { feedback:.72, zoom:1.000, spin:0,   drift:.04, warp:8,
+             chroma:5,  glow:1.15,hue:.08, sat:.7,  particles:4200, trail:1,
+             thresh:.05, edge:.7,  body:.3,  bleed:.16, smooth:.11,
+             speed:.42, deshake:.9, face:.75, mesh:1.5, detail:1,
+             contrast:2.1 },
+  skin:    { feedback:.84, zoom:1.000, spin:.01, drift:.05, warp:10,
+             chroma:6,  glow:.95, hue:.06, sat:.6,  particles:3800, trail:.95,
+             thresh:.06, edge:.8,  body:.28, bleed:.10, smooth:.10,
+             speed:.4,  deshake:.9, face:.5, mesh:1.8, detail:1,
+             contrast:2.6 },
   silk:    { feedback:.90, zoom:1.001, spin:.02, drift:.08, warp:9,
              chroma:5,  glow:.7,  hue:.04, sat:.5,  particles:3000, trail:.85,
              thresh:.06, edge:1.0, body:.35, bleed:.07, smooth:.09,
-             speed:.30, deshake:.9, face:1.0, detail:2.0, contrast:1.2  },
-  portrait:{ feedback:.93, zoom:1.000, spin:.01, drift:.04, warp:6,
-             chroma:4,  glow:.8,  hue:.02, sat:.45, particles:3600, trail:.95,
-             thresh:.07, edge:.7,  body:.25, bleed:.05, smooth:.08,
-             speed:.22, deshake:.95, face:2.1, detail:1.0, contrast:2.2  },
-  ember:   { feedback:.91, zoom:1.002, spin:.04, drift:.14, warp:16,
-             chroma:8,  glow:.85, hue:.02, sat:.95, particles:3000, trail:.9,
-             thresh:.05, edge:1.3, body:.45, bleed:.06, smooth:.11,
-             speed:.38, deshake:.85, face:1.3, detail:1.5, contrast:1.5  },
+             speed:.30, deshake:.9, face:.9, mesh:.8, detail:2,
+             contrast:1.2 },
   ghost:   { feedback:.95, zoom:1.000, spin:0,   drift:.05, warp:6,
              chroma:3,  glow:.42, hue:.02, sat:.2,  particles:2200, trail:.95,
              thresh:.07, edge:1.5, body:.28, bleed:.04, smooth:.07,
-             speed:.22, deshake:.95, face:.8, detail:2.5, contrast:0.9  },
-  ribbon:  { feedback:.78, zoom:1.000, spin:0,   drift:.06, warp:12,
-             chroma:7,  glow:1.0, hue:.12, sat:.85, particles:1800, trail:1,
-             thresh:.05, edge:.9,  body:.4,  bleed:.13, smooth:.14,
-             speed:.55, deshake:.8, face:1.4, detail:1.5, contrast:1.3  },
+             speed:.22, deshake:.95, face:.8, mesh:.6, detail:2.5,
+             contrast:.9 },
   storm:   { feedback:.88, zoom:1.004, spin:.18, drift:.5,  warp:44,
              chroma:16, glow:.95, hue:.25, sat:1,   particles:4000, trail:.6,
              thresh:.04, edge:.8,  body:.55, bleed:.08, smooth:.22,
-             speed:.9,  deshake:.6, face:.6, detail:2.0, contrast:1.0  },
+             speed:.9,  deshake:.6, face:.6, mesh:.7, detail:2,
+             contrast:1.0 },
 };
+
 
 
 
@@ -395,7 +404,7 @@ function buildField(arr, w, h, lumaSrc) {
          weak enough that real shading and landmarks dominate the shape. */
       var slope = on ? (0.30 + 0.22 * Math.sin(x * 0.055 + y * 0.021)
                              + 0.16 * (y / FH)) : 0;
-      var base = on ? (slope + l * 1.5) : 0;
+      var base = on ? (slope + l * 2.4) : 0;
       /* face contours raise the field, so a streamline following a line of
          constant value is deflected around an eyelid or a lip the same way
          it is deflected around the body. */
@@ -653,6 +662,7 @@ function loadFace() {
             lBrow:  v.FaceLandmarker.FACE_LANDMARKS_LEFT_EYEBROW,
             rBrow:  v.FaceLandmarker.FACE_LANDMARKS_RIGHT_EYEBROW,
             oval:   v.FaceLandmarker.FACE_LANDMARKS_FACE_OVAL,
+            mesh:   v.FaceLandmarker.FACE_LANDMARKS_TESSELATION,
             lIris:  v.FaceLandmarker.FACE_LANDMARKS_LEFT_IRIS,
             rIris:  v.FaceLandmarker.FACE_LANDMARKS_RIGHT_IRIS,
           };
@@ -702,22 +712,30 @@ function updateFace(tms) {
     fctx.clearRect(0, 0, FW, FH);
     fctx.lineCap = "round";
     fctx.lineJoin = "round";
+
+    /* the full tessellation first, very faint. this is the actual surface —
+       every cheek, jaw and forehead facet — where the feature outlines only
+       describe boundaries. it is what stops the face reading as a mask with
+       holes cut in it. */
+    if (P.mesh > 0 && faceConn.mesh) {
+      drawConn(pts, faceConn.mesh, 0.7, 0.16 * P.mesh);
+    }
     /* weighted by how much each feature should deflect a streamline. the
        eyes and lips read hardest, the oval is a soft boundary. */
-    drawConn(pts, faceConn.oval,  2.2, 0.55);
-    drawConn(pts, faceConn.lBrow, 2.6, 0.85);
-    drawConn(pts, faceConn.rBrow, 2.6, 0.85);
-    drawConn(pts, faceConn.lEye,  2.4, 1.0);
-    drawConn(pts, faceConn.rEye,  2.4, 1.0);
-    drawConn(pts, faceConn.lips,  2.8, 1.0);
-    drawConn(pts, faceConn.lIris, 2.0, 0.9);
-    drawConn(pts, faceConn.rIris, 2.0, 0.9);
+    drawConn(pts, faceConn.oval,  1.6, 0.34);
+    drawConn(pts, faceConn.lBrow, 1.7, 0.52);
+    drawConn(pts, faceConn.rBrow, 1.7, 0.52);
+    drawConn(pts, faceConn.lEye,  1.6, 0.62);
+    drawConn(pts, faceConn.rEye,  1.6, 0.62);
+    drawConn(pts, faceConn.lips,  1.8, 0.62);
+    drawConn(pts, faceConn.lIris, 1.4, 0.55);
+    drawConn(pts, faceConn.rIris, 1.4, 0.55);
 
     // the nose bridge and base, which have no connector set
     var NOSE = [168, 6, 197, 195, 5, 4, 1, 19, 94, 2];
     var WING = [98, 97, 2, 326, 327];
-    fctx.lineWidth = 2.4;
-    fctx.strokeStyle = "rgba(255,255,255,0.95)";
+    fctx.lineWidth = 1.6;
+    fctx.strokeStyle = "rgba(255,255,255,0.55)";
     for (var g = 0; g < 2; g++) {
       var set = g ? WING : NOSE;
       fctx.beginPath();
