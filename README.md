@@ -55,29 +55,30 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 13 — the face surface
+## Build 14 — dots, mesh, and instant response
 
-Two things were limiting facial detail.
+**Three render modes**, cycled by the mode button:
 
-**Only outlines were being drawn.** The landmarker was supplying eyes, brows,
-nose, lips and the face oval — roughly 220 line segments describing feature
-BOUNDARIES. FACE_LANDMARKS_TESSELATION is the full triangulated mesh over all
-468 points, about 2,600 connections covering the actual surface: cheeks, jaw,
-forehead, the bridge of the nose. That is now drawn first, very faint, under
-the features. There is a **face mesh** slider for it.
+- **FLOW** — the streamline field, as before
+- **DOTS** — all 468 tracked landmarks as points, sized and hue-shifted by
+  their z depth so the face still reads as a surface rather than a flat
+  constellation
+- **MESH** — the same dots plus the full tessellation as a wireframe
 
-**The outlines were swamping everything else.** A feature ridge sat at roughly
-1.4 in field terms against an interior of 0.3-0.7, so streamlines collapsed
-onto the ridges and the surface between them stayed empty — the face read as a
-mask with holes cut in it. Ridge weights are roughly halved and the luminance
-term is up from 1.5 to 2.4, so real skin shading competes.
+DOTS and MESH are drawn straight from the landmarks in screen space. There is
+no field, no temporal smoothing and no feedback in that path, so they track
+the camera frame exactly — nothing to catch up.
 
-Presets rebuilt around RIBBON, which is now the default state. ETCH and SKIN
-are new: both lean hard on the mesh and local contrast rather than the feature
-outlines.
+**The lag in FLOW mode** came from four delays compounding: field smoothing at
+0.14, mask smoothing at 0.5, face-field smoothing at 0.55, and feedback at
+0.78 holding old frames on screen.
 
-## On depth
-There is no way to reach the TrueDepth sensor from Safari. iOS exposes no
-depth API to the web at all, and no permission unlocks it — a native app can,
-a web app cannot. Everything here is derived from the colour image: person
-segmentation, face landmarks, and local contrast.
+Smoothing is now adaptive. It exists to absorb jitter while you are still, but
+the same easing reads as lag when you move — so it opens in proportion to how
+much of the frame is actually moving:
+
+  still        0.23s to settle
+  small move   0.13s
+  big move     0.07s
+
+Previously a flat 0.53s regardless. The mask and face buffers snap harder too.

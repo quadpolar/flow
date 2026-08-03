@@ -136,6 +136,7 @@
       <button id="tMesh">WASH</button>
     <button id="tMask">ME ONLY</button>
     <button id="tRegion" class="on">OUTSIDE</button>
+    <button id="tMode" class="on">FLOW</button>
     </div>
 
     <div id="sliders"></div>
@@ -171,7 +172,7 @@ var P = {
   edge:     1.2,    // how much the outline of you is favoured
   body:     0.35,    // how strongly your silhouette is drawn
   bleed:    0.13,  // stops light accumulating to white
-  smooth:   0.10,  // how fast the field follows the camera
+  smooth:   0.30,  // how fast the field follows the camera
   speed:    0.55,  // how fast the lines travel
   deshake:  0.85,  // cancels whole-frame camera movement
   face:     0.9,   // how hard the feature outlines deflect lines
@@ -208,34 +209,34 @@ var SPECS = [
 var PRESETS = {
   ribbon:  { feedback:.78, zoom:1.000, spin:0,   drift:.06, warp:12,
              chroma:7,  glow:1.0, hue:.12, sat:.85, particles:2600, trail:1,
-             thresh:.05, edge:.9,  body:.4,  bleed:.13, smooth:.14,
+             thresh:.05, edge:.9,  body:.4,  bleed:.13, smooth:0.3,
              speed:.55, deshake:.8, face:.9, mesh:.9, detail:1.5,
-             contrast:1.4 },
+             contrast:1.4  },
   etch:    { feedback:.72, zoom:1.000, spin:0,   drift:.04, warp:8,
              chroma:5,  glow:1.15,hue:.08, sat:.7,  particles:4200, trail:1,
-             thresh:.05, edge:.7,  body:.3,  bleed:.16, smooth:.11,
+             thresh:.05, edge:.7,  body:.3,  bleed:.16, smooth:0.28,
              speed:.42, deshake:.9, face:.75, mesh:1.5, detail:1,
-             contrast:2.1 },
+             contrast:2.1  },
   skin:    { feedback:.84, zoom:1.000, spin:.01, drift:.05, warp:10,
              chroma:6,  glow:.95, hue:.06, sat:.6,  particles:3800, trail:.95,
-             thresh:.06, edge:.8,  body:.28, bleed:.10, smooth:.10,
+             thresh:.06, edge:.8,  body:.28, bleed:.10, smooth:0.26,
              speed:.4,  deshake:.9, face:.5, mesh:1.8, detail:1,
-             contrast:2.6 },
+             contrast:2.6  },
   silk:    { feedback:.90, zoom:1.001, spin:.02, drift:.08, warp:9,
              chroma:5,  glow:.7,  hue:.04, sat:.5,  particles:3000, trail:.85,
-             thresh:.06, edge:1.0, body:.35, bleed:.07, smooth:.09,
+             thresh:.06, edge:1.0, body:.35, bleed:.07, smooth:0.24,
              speed:.30, deshake:.9, face:.9, mesh:.8, detail:2,
-             contrast:1.2 },
+             contrast:1.2  },
   ghost:   { feedback:.95, zoom:1.000, spin:0,   drift:.05, warp:6,
              chroma:3,  glow:.42, hue:.02, sat:.2,  particles:2200, trail:.95,
-             thresh:.07, edge:1.5, body:.28, bleed:.04, smooth:.07,
+             thresh:.07, edge:1.5, body:.28, bleed:.04, smooth:0.18,
              speed:.22, deshake:.95, face:.8, mesh:.6, detail:2.5,
-             contrast:.9 },
+             contrast:.9  },
   storm:   { feedback:.88, zoom:1.004, spin:.18, drift:.5,  warp:44,
              chroma:16, glow:.95, hue:.25, sat:1,   particles:4000, trail:.6,
-             thresh:.04, edge:.8,  body:.55, bleed:.08, smooth:.22,
+             thresh:.04, edge:.8,  body:.55, bleed:.08, smooth:0.45,
              speed:.9,  deshake:.6, face:.6, mesh:.7, detail:2,
-             contrast:1.0 },
+             contrast:1.0  },
 };
 
 
@@ -245,6 +246,7 @@ var PRESETS = {
 
 var mirror = true, useParticles = true, useMesh = false, useMask = false;
 var region = 1;   // 0 inside you, 1 outside you, 2 both
+var mode = 0;     // 0 flow, 1 dots, 2 dots + triangles
 
 /* ---------- build the sliders ---------- */
 var wrap = document.getElementById("sliders");
@@ -328,6 +330,21 @@ toggle("tMask", function () { return useMask; },
            if (r) { r.input.value = P.body; r.out.textContent = fmt(P.body, r.step); }
          }
        });
+
+(function () {
+  var el = document.getElementById("tMode");
+  var names = ["FLOW", "DOTS", "MESH"];
+  el.addEventListener("click", function () {
+    mode = (mode + 1) % 3;
+    el.textContent = names[mode];
+    if (mode > 0 && !useMask) {
+      useMask = true;
+      var m = document.getElementById("tMask");
+      m.classList.add("on");
+      if (!segTried) loadSegmenter();
+    }
+  });
+})();
 
 (function () {
   var el = document.getElementById("tRegion");
@@ -447,7 +464,15 @@ function buildField(arr, w, h, lumaSrc) {
   /* ease the field toward its new state instead of replacing it. a knock to
      the camera and a flickering segmentation edge both arrive as a sudden
      change; blending removes the jitter from both without losing detail. */
-  var ease = fieldSeeded ? P.smooth : 1;
+  /* adaptive. the smoothing exists to absorb jitter while you are still,
+     but the same easing reads as lag when you move. so it opens up in
+     proportion to how much of the frame is actually moving. */
+  var motion = 0;
+  for (var mi2 = 0; mi2 < fm.length; mi2++) motion += fm[mi2];
+  motion = Math.min(1, (motion / Math.max(1, fm.length)) * 26);
+  var ease = fieldSeeded
+    ? Math.min(1, P.smooth + motion * (1 - P.smooth) * 0.9)
+    : 1;
   fieldSeeded = true;
   for (var i2 = 0; i2 < fieldA.length; i2++) {
     fieldPrev[i2] += (fieldA[i2] - fieldPrev[i2]) * ease;
@@ -678,6 +703,7 @@ function loadFace() {
 
 var faceField = new Float32Array(FW * FH);
 var faceSeen = false;
+var facePts = null;
 
 function drawConn(pts, conn, w, alpha) {
   if (!conn) return;
@@ -702,12 +728,13 @@ function updateFace(tms) {
   try {
     var res = faceLM.detectForVideo(cam, tms);
     if (!res || !res.faceLandmarks || !res.faceLandmarks.length) {
-      faceSeen = false;
+      faceSeen = false; facePts = null;
       for (var z = 0; z < faceField.length; z++) faceField[z] *= 0.86;
       return;
     }
     faceSeen = true;
     var pts = res.faceLandmarks[0];
+    facePts = pts;
 
     fctx.clearRect(0, 0, FW, FH);
     fctx.lineCap = "round";
@@ -751,7 +778,7 @@ function updateFace(tms) {
     var d = fctx.getImageData(0, 0, FW, FH).data;
     for (var i2 = 0; i2 < faceField.length; i2++) {
       var v = d[i2 * 4 + 3] / 255;
-      faceField[i2] += (v - faceField[i2]) * 0.55;
+      faceField[i2] += (v - faceField[i2]) * 0.8;
     }
   } catch (e) { /* a dropped frame is not worth stopping for */ }
 }
@@ -778,7 +805,7 @@ function updateMask(tms) {
         }
         var v = n ? hit / n : 0;
         var i = gy * MW + gx;
-        maskGrid[i] += (v - maskGrid[i]) * 0.5;   // soften over time
+        maskGrid[i] += (v - maskGrid[i]) * 0.72;   // soften over time
       }
     }
     // and a proper silhouette bitmap at higher resolution
@@ -1097,10 +1124,57 @@ function frame(t) {
     ctx.globalAlpha = 1;
   }
 
+  /* 2c. DOTS and MESH. drawn directly from the landmarks with nothing in
+        between, so they track instantly — no field, no temporal smoothing,
+        no feedback. this is the mode that feels stuck to your face. */
+  if (mode > 0 && facePts && faceSeen) {
+    var crm = coverRect();
+    var hh3 = (hue % 360 + 360) % 360;
+    ctx.globalCompositeOperation = "lighter";
+
+    if (mode === 2 && faceConn && faceConn.mesh) {
+      ctx.strokeStyle = "hsla(" + hh3 + ",85%,58%," +
+                        (0.16 + P.mesh * 0.13) + ")";
+      ctx.lineWidth = 0.6;
+      ctx.beginPath();
+      var cn = faceConn.mesh;
+      for (var mi = 0; mi < cn.length; mi++) {
+        var pa = facePts[cn[mi].start], pb = facePts[cn[mi].end];
+        if (!pa || !pb) continue;
+        ctx.moveTo(crm.x + pa.x * crm.w, crm.y + pa.y * crm.h);
+        ctx.lineTo(crm.x + pb.x * crm.w, crm.y + pb.y * crm.h);
+      }
+      ctx.stroke();
+    }
+
+    // every tracked point. depth shifts the hue and the size, so the face
+    // still reads as a surface rather than a flat constellation
+    var zs = 0;
+    for (var di = 0; di < facePts.length; di++) zs += facePts[di].z || 0;
+    zs /= facePts.length || 1;
+
+    for (var pi2 = 0; pi2 < facePts.length; pi2++) {
+      var q2 = facePts[pi2];
+      var px2 = crm.x + q2.x * crm.w, py2 = crm.y + q2.y * crm.h;
+      if (px2 < -20 || px2 > W + 20 || py2 < -20 || py2 > H + 20) continue;
+      var dz = ((q2.z || 0) - zs) * 14;
+      var r2 = Math.max(0.7, (1.5 + P.face * 1.1) * (1 - dz * 0.5));
+      ctx.fillStyle = "hsl(" + ((hh3 + dz * 90 + 360) % 360) + "," +
+        Math.round(50 + P.sat * 50) + "%," +
+        Math.round(58 + Math.max(-25, Math.min(25, -dz * 40))) + "%)";
+      ctx.globalAlpha = Math.min(1, 0.45 + P.glow * 0.5);
+      ctx.beginPath();
+      ctx.arc(px2, py2, r2, 0, 6.3);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   /* 3. streamlines. this is the whole look — many thin curves following the
         contour field, drawn additively on black so they build up density
         where they overlap, exactly like the reference images. */
-  if (useParticles && P.particles > 0 && useMask && segReady) {
+  if (mode === 0 && useParticles && P.particles > 0 &&
+      useMask && segReady) {
     seedTracers(Math.round(P.particles));
     ctx.globalCompositeOperation = "lighter";
     ctx.lineCap = "round";
