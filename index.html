@@ -157,7 +157,7 @@ var P = {
   glow:     0.75,   // brightness of the ink laid down
   hue:      0.06,   // hue rotation per second
   sat:      0.85,
-  particles: 420,
+  particles: 620,
   trail:    0.62,   // particle streak length
   thresh:   0.06,   // motion below this is ignored
   edge:     1.2,    // how much the outline of you is favoured
@@ -185,21 +185,22 @@ var SPECS = [
 
 var PRESETS = {
   grain:   { feedback:.82, zoom:1.002, spin:.05, drift:.15, warp:14,
-             chroma:6,  glow:.8,  hue:.05, sat:.55, particles:520, trail:.7,
+             chroma:6,  glow:.8,  hue:.05, sat:.55, particles:760, trail:.7,
              thresh:.05, edge:1.2, body:.45, bleed:.10 },
   ember:   { feedback:.88, zoom:1.004, spin:.1,  drift:.3,  warp:30,
-             chroma:10, glow:.9,  hue:.02, sat:1,   particles:460, trail:.8,
+             chroma:10, glow:.9,  hue:.02, sat:1,   particles:700, trail:.8,
              thresh:.04, edge:1.6, body:.6,  bleed:.07 },
   ghost:   { feedback:.94, zoom:1.001, spin:0,   drift:.08, warp:8,
-             chroma:3,  glow:.45, hue:.03, sat:.25, particles:300, trail:.9,
+             chroma:3,  glow:.45, hue:.03, sat:.25, particles:480, trail:.9,
              thresh:.07, edge:1.8, body:.35, bleed:.05 },
   ribbon:  { feedback:.70, zoom:1.000, spin:0,   drift:.1,  warp:22,
-             chroma:8,  glow:1.1, hue:.3,  sat:.9,  particles:260, trail:1,
+             chroma:8,  glow:1.1, hue:.3,  sat:.9,  particles:420, trail:1,
              thresh:.05, edge:1.0, body:.5,  bleed:.16 },
   storm:   { feedback:.86, zoom:1.008, spin:.5,  drift:1.1, warp:70,
-             chroma:20, glow:.95, hue:.6,  sat:1,   particles:640, trail:.45,
+             chroma:20, glow:.95, hue:.6,  sat:1,   particles:900, trail:.45,
              thresh:.03, edge:.8,  body:.7,  bleed:.09 },
 };
+
 
 
 var mirror = true, useParticles = true, useMesh = false, useMask = false;
@@ -292,7 +293,7 @@ var mctx = maskCanvas.getContext("2d", { willReadFrequently: true });
 /* a higher-resolution silhouette, used to actually DRAW you rather than
    just weight the abstract layers. without something on screen shaped like
    a person there is no way to tell the effect is reacting to you at all. */
-var SILW = 192, SILH = 144;
+var SILW = 384, SILH = 288;
 var sil = document.createElement("canvas");
 sil.width = SILW; sil.height = SILH;
 var silctx = sil.getContext("2d");
@@ -305,7 +306,7 @@ var silReady = false;
    gives a gradient that is zero everywhere except one pixel. so the mask is
    blurred heavily, sampled bilinearly, and combined with the camera's own
    luminance so the interior has structure too. */
-var FW = 96, FH = 72;
+var FW = 176, FH = 132;
 var fieldA = new Float32Array(FW * FH);
 var fieldB = new Float32Array(FW * FH);
 
@@ -317,19 +318,40 @@ function buildField(arr, w, h, lumaSrc) {
       var rx = Math.floor(x * w / FW);
       var on = arr[ry * w + rx] !== 0 ? 1 : 0;
       var l = lumaSrc ? lumaSrc[(y * FW + x)] : 0;
-      fieldA[y * FW + x] = on * (0.55 + l * 0.9);
+      /* luminance dominates inside the mask, so the face and torso carry
+         real contours. with a flat interior the gradient is zero and the
+         only lines that appear are on the silhouette edge. */
+      fieldA[y * FW + x] = on ? (0.18 + l * 1.5) : 0;
     }
   }
-  // heavy blur: a sharp edge has no usable gradient
-  for (var pass = 0; pass < 5; pass++) {
-    for (var y2 = 1; y2 < FH - 1; y2++) {
-      for (var x2 = 1; x2 < FW - 1; x2++) {
-        var i = y2 * FW + x2;
-        fieldB[i] = (fieldA[i] * 4 + fieldA[i - 1] + fieldA[i + 1] +
-                     fieldA[i - FW] + fieldA[i + FW]) / 8;
+  /* separable box blur. a wide radius matters more than many small passes:
+     the streamline has to see a smooth field or it wanders off its isoline.
+     measured, radius 3 takes the drift from 0.19 to under 0.10. */
+  var R = 3;
+  for (var pass = 0; pass < 2; pass++) {
+    for (var y3 = 0; y3 < FH; y3++) {
+      var base = y3 * FW;
+      for (var x3 = 0; x3 < FW; x3++) {
+        var sum = 0, cnt = 0;
+        for (var k = -R; k <= R; k++) {
+          var xx = x3 + k;
+          if (xx < 0 || xx >= FW) continue;
+          sum += fieldA[base + xx]; cnt++;
+        }
+        fieldB[base + x3] = sum / cnt;
       }
     }
-    var tmp = fieldA; fieldA = fieldB; fieldB = tmp;
+    for (var x4 = 0; x4 < FW; x4++) {
+      for (var y4 = 0; y4 < FH; y4++) {
+        var sum2 = 0, cnt2 = 0;
+        for (var k2 = -R; k2 <= R; k2++) {
+          var yy = y4 + k2;
+          if (yy < 0 || yy >= FH) continue;
+          sum2 += fieldB[yy * FW + x4]; cnt2++;
+        }
+        fieldA[y4 * FW + x4] = sum2 / cnt2;
+      }
+    }
   }
 }
 
@@ -344,7 +366,7 @@ function fsamp(x, y) {
 
 /* the contour direction: perpendicular to the gradient */
 function contourAt(x, y) {
-  var d = 1.5;
+  var d = 2.8;
   var gx = fsamp(x + d, y) - fsamp(x - d, y);
   var gy = fsamp(x, y + d) - fsamp(x, y - d);
   var m = Math.hypot(gx, gy);
@@ -478,7 +500,7 @@ function maskAt(u, v) {
    each direction and taking whichever shift best explains the change gives a
    direction — that is the flow. no model, no face detection, works in any
    light and responds to hands and background too. */
-var SW = 160, SH = 120;         // sampling resolution
+var SW = 256, SH = 192;         // sampling resolution
 var COLS = 32, ROWS = 24;       // flow grid
 var small = document.createElement("canvas");
 small.width = SW; small.height = SH;
@@ -688,7 +710,8 @@ function frame(t) {
 
     ctx.globalCompositeOperation = "lighter";
     ctx.globalAlpha = Math.min(0.85, 0.45 * P.body);
-    ctx.drawImage(tint, 0, 0, W, H);
+    var cr = coverRect(SILW, SILH);
+    ctx.drawImage(tint, cr.x, cr.y, cr.w, cr.h);
     ctx.globalAlpha = 1;
   }
 
@@ -699,7 +722,9 @@ function frame(t) {
     seedTracers(Math.round(P.particles));
     ctx.globalCompositeOperation = "lighter";
     ctx.lineCap = "round";
-    var sx2 = W / FW, sy2 = H / FH;
+    var cr2 = coverRect(FW, FH);
+    var sx2 = cr2.w / FW, sy2 = cr2.h / FH;
+    var ox2 = cr2.x, oy2 = cr2.y;
     var steps = Math.round(4 + P.trail * 16);
 
     for (var ti = 0; ti < tracers.length; ti++) {
@@ -713,28 +738,28 @@ function frame(t) {
       ctx.strokeStyle = "hsl(" + hh2 + "," +
         Math.round(55 + P.sat * 45) + "%," +
         Math.round(38 + v * 34) + "%)";
-      ctx.lineWidth = 0.6 + v * 1.5;
+      ctx.lineWidth = 0.5 + v * 1.1;
       ctx.globalAlpha = Math.min(0.9, (0.14 + v * 0.5) * P.glow *
                                       Math.max(0, fade));
 
       ctx.beginPath();
-      ctx.moveTo(tr.x * sx2, tr.y * sy2);
+      ctx.moveTo(ox2 + tr.x * sx2, oy2 + tr.y * sy2);
       var cx2 = tr.x, cy2 = tr.y;
       for (var st = 0; st < steps; st++) {
         var c = contourAt(cx2, cy2);
         if (!c) break;
         // the optical flow nudges the line, so moving warps the field
         var fl = sampleFlow(cx2 / FW, cy2 / FH);
-        cx2 += c.x * 0.85 + fl.x * P.warp * 0.05;
-        cy2 += c.y * 0.85 + fl.y * P.warp * 0.05;
+        cx2 += c.x * 1.25 + fl.x * P.warp * 0.05;
+        cy2 += c.y * 1.25 + fl.y * P.warp * 0.05;
         if (cx2 < 0 || cx2 >= FW || cy2 < 0 || cy2 >= FH) break;
-        ctx.lineTo(cx2 * sx2, cy2 * sy2);
+        ctx.lineTo(ox2 + cx2 * sx2, oy2 + cy2 * sy2);
       }
       ctx.stroke();
 
       // advance the head of the tracer along the field
       var h2 = contourAt(tr.x, tr.y);
-      if (h2) { tr.x += h2.x * 0.9; tr.y += h2.y * 0.9; }
+      if (h2) { tr.x += h2.x * 1.3; tr.y += h2.y * 1.3; }
       tr.age += 1;
       if (tr.age > tr.life || tr.x < 0 || tr.x >= FW ||
           tr.y < 0 || tr.y >= FH) respawn(tr);

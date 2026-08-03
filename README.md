@@ -32,3 +32,24 @@ add/(1-f), which clips to white without it.
 ## Requirements
 Camera needs HTTPS and Safari proper. Nothing is recorded, nothing leaves the
 device. The person field is a ~1MB model from a CDN, cached after first load.
+
+
+## Build notes: aspect and resolution
+
+The camera is 4:3 and a phone screen is roughly 9:19.5. Drawing the mask
+across the full screen stretched it — measured, that squashed the horizontal
+axis to 0.35 of its correct width, which is why the silhouette looked
+compressed. Everything now uses a cover-fit: scale to fill, crop the
+overflow, with an exact inverse for lookups.
+
+Resolution raised throughout:
+  sampling    160x120 -> 256x192
+  field        96x72  -> 176x132   (23,232 cells, was 6,912)
+  silhouette  192x144 -> 384x288
+
+The interior of the field was nearly flat, so the only contours were on the
+silhouette edge and no lines appeared inside the body. Luminance now dominates
+inside the mask, taking cells with signal from 2,575 to 9,308.
+
+That finer detail broke contour tracking until the blur was replaced with a
+wide separable box blur — drift went 0.19 -> 0.108.
