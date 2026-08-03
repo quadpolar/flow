@@ -149,20 +149,21 @@ var ctx = view.getContext("2d");
 /* ---------- parameters. every one is read fresh each frame, so a slider
    changes the piece immediately with no restart ---------- */
 var P = {
-  feedback: 0.93,   // how much of the last frame is kept
+  feedback: 0.90,   // how much of the last frame is kept
   zoom:     1.010,  // scale applied to the feedback each frame
   spin:     0.20,   // degrees of rotation on the feedback
   drift:    0.30,   // how far the feedback is pushed by the flow
   warp:     34,     // mesh displacement in px per unit of flow
-  chroma:   7,      // rgb channel separation
-  glow:     0.55,   // brightness of the ink laid down
+  chroma:   11,      // rgb channel separation
+  glow:     0.42,   // brightness of the ink laid down
   hue:      0.12,   // hue rotation per second
   sat:      0.85,
   particles: 150,
   trail:    0.40,   // particle streak length
   thresh:   0.06,   // motion below this is ignored
   edge:     1.2,    // how much the outline of you is favoured
-  body:     0.9,    // how strongly your silhouette is drawn
+  body:     1.0,    // how strongly your silhouette is drawn
+  bleed:    0.055,  // stops light accumulating to white
 };
 
 var SPECS = [
@@ -180,27 +181,28 @@ var SPECS = [
   ["thresh",    "threshold", 0,    0.3,   0.005],
   ["edge",      "edge bias", 0,    3,     0.05],
   ["body",      "your outline", 0, 1.5,   0.05],
+  ["bleed",     "bleed",     0,    0.3,   0.005],
 ];
 
 var PRESETS = {
   smoke:   { feedback:.93, zoom:1.006, spin:.15, drift:1.4, warp:26,
              chroma:4,  glow:.5,  hue:.2,  sat:.7,  particles:420, trail:.75,
-             thresh:.05, edge:1.4 , body:1.0 },
+             thresh:.05, edge:1.4 , body:1.0 , bleed:0.06 },
   tunnel:  { feedback:.96, zoom:1.032, spin:1.1, drift:.3,  warp:14,
              chroma:12, glow:.75, hue:.9,  sat:1,   particles:120, trail:.4,
-             thresh:.07, edge:0.6 , body:0.6 },
+             thresh:.07, edge:0.6 , body:0.6 , bleed:0.045 },
   oil:     { feedback:.88, zoom:1.002, spin:-.4, drift:2.2, warp:96,
              chroma:26, glow:.6,  hue:1.4, sat:1,   particles:0,   trail:.5,
-             thresh:.04, edge:2.2 , body:1.1 },
+             thresh:.04, edge:2.2 , body:1.1 , bleed:0.07 },
   ghost:   { feedback:.985,zoom:1.000, spin:0,   drift:.1,  warp:8,
              chroma:2,  glow:.32, hue:.06, sat:.35, particles:80,  trail:.9,
-             thresh:.09, edge:1.8 , body:1.2 },
+             thresh:.09, edge:1.8 , body:1.2 , bleed:0.03 },
   body:    { feedback:.90, zoom:1.004, spin:.1,  drift:.15, warp:20,
              chroma:6,  glow:.4,  hue:.08, sat:.8,  particles:110, trail:.35,
-             thresh:.05, edge:2.6, body:1.3 },
+             thresh:.05, edge:2.6, body:1.3 , bleed:0.055 },
   shatter: { feedback:.72, zoom:0.985, spin:2.4, drift:2.6, warp:128,
              chroma:34, glow:1.15,hue:-1.2,sat:1,   particles:760, trail:.25,
-             thresh:.03, edge:0.8 , body:0.5 },
+             thresh:.03, edge:0.8 , body:0.5 , bleed:0.12 },
 };
 
 var mirror = true, useParticles = true, useMesh = true, useMask = false;
@@ -302,6 +304,9 @@ var silReady = false;
 var rim = document.createElement("canvas");
 rim.width = SILW; rim.height = SILH;
 var rctx = rim.getContext("2d");
+var tint = document.createElement("canvas");
+tint.width = SILW; tint.height = SILH;
+var tctx = tint.getContext("2d");
 
 function loadSegmenter() {
   segTried = true;
@@ -534,6 +539,14 @@ function frame(t) {
   bctx.scale(P.zoom, P.zoom);
   bctx.drawImage(view, -cw / 2, -chh / 2, cw, chh);
   bctx.restore();
+  /* bleed. additive light with a high feedback factor reaches a steady state
+     of add/(1-feedback), which clips to white within a second. subtracting a
+     little every frame gives it somewhere to go. */
+  bctx.globalCompositeOperation = "destination-out";
+  bctx.globalAlpha = P.bleed;
+  bctx.fillStyle = "#000";
+  bctx.fillRect(0, 0, cw, chh);
+  bctx.globalCompositeOperation = "source-over";
   bctx.globalAlpha = 1;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -553,7 +566,7 @@ function frame(t) {
     var cwid = W / COLS, chgt = H / ROWS;
     var chan = [["#FF0040", -1], ["#00FF88", 0], ["#3060FF", 1]];
     for (var c = 0; c < 3; c++) {
-      ctx.globalAlpha = P.glow * 0.5 * (0.4 + P.sat * 0.6);
+      ctx.globalAlpha = P.glow * 0.16 * (0.4 + P.sat * 0.6);
       ctx.fillStyle = chan[c][0];
       var off = chan[c][1] * P.chroma;
       for (var gy2 = 0; gy2 < ROWS; gy2++) {
@@ -566,7 +579,7 @@ function frame(t) {
           var dx = fx[idx] * P.warp * Math.min(1.4, mk) + off;
           var dy = fy[idx] * P.warp * Math.min(1.4, mk);
           var a = Math.min(1, (m - P.thresh) * 9);
-          ctx.globalAlpha = a * P.glow * 0.55 * Math.min(1, mk);
+          ctx.globalAlpha = a * P.glow * 0.18 * Math.min(1, mk);
           ctx.fillRect(gx2 * cwid + dx, gy2 * chgt + dy,
                        cwid * 1.15, chgt * 1.15);
         }
@@ -580,23 +593,20 @@ function frame(t) {
         makes the whole thing legible — the abstract layers alone give no
         clue that they are reacting to your body. */
   if (useMask && segReady && silReady && P.body > 0) {
-    ctx.globalCompositeOperation = "lighter";
     var hh0 = (hue % 360 + 360) % 360;
 
-    // soft fill, several offset copies for a bloom
-    ctx.globalAlpha = 0.10 * P.body;
-    ctx.fillStyle = "hsl(" + hh0 + ",90%,58%)";
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 0, W, H);
-    ctx.clip();
+    /* your interior is CUT OUT of the accumulated light rather than filled.
+       previously it was the only thing not accumulating, so it read as a
+       black hole in a white field. now the light lives around you and your
+       body is a clean window. */
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.globalAlpha = Math.min(1, 0.55 * P.body);
     ctx.drawImage(sil, 0, 0, W, H);
-    ctx.restore();
+    ctx.globalAlpha = 1;
 
-    // the outline: the silhouette drawn several times, offset, and the
-    // centre punched back out, which leaves a clean rim
+    // the rim: silhouette drawn offset several times, centre punched out
     rctx.clearRect(0, 0, SILW, SILH);
-    var k = 2;
+    var k = 1 + Math.round(Math.min(3, Math.hypot(avx, avy) * 9));
     for (var oy = -k; oy <= k; oy++) {
       for (var ox = -k; ox <= k; ox++) {
         if (ox * ox + oy * oy > k * k) continue;
@@ -605,15 +615,27 @@ function frame(t) {
     }
     rctx.globalCompositeOperation = "destination-out";
     rctx.drawImage(sil, 0, 0);
+    rctx.globalCompositeOperation = "source-over";
 
-    ctx.globalAlpha = Math.min(1, 0.85 * P.body);
-    ctx.fillStyle = "hsl(" + ((hh0 + 40) % 360) + ",95%,62%)";
-    ctx.save();
-    ctx.beginPath();
-    ctx.rect(0, 0, W, H);
-    ctx.clip();
-    ctx.drawImage(rim, 0, 0, W, H);
-    ctx.restore();
+    // the rim is the bright thing on screen, and it is chromatic: three
+    // offset copies in three hues, so the edge splits like a prism
+    ctx.globalCompositeOperation = "lighter";
+    /* the split opens with your movement, so the rim breathes rather than
+       sitting at a constant offset — this is what ties it to your body */
+    var mv = Math.min(1, Math.hypot(avx, avy) * 3.2);
+    var sep = P.chroma * (0.18 + mv * 0.9);
+    var trio = [[0, hh0], [1, (hh0 + 45) % 360], [-1, (hh0 + 300) % 360]];
+    for (var ci = 0; ci < 3; ci++) {
+      // colour the rim mask in its own buffer, then add it to the scene
+      tctx.globalCompositeOperation = "source-over";
+      tctx.clearRect(0, 0, SILW, SILH);
+      tctx.drawImage(rim, 0, 0);
+      tctx.globalCompositeOperation = "source-in";
+      tctx.fillStyle = "hsl(" + trio[ci][1] + ",95%,62%)";
+      tctx.fillRect(0, 0, SILW, SILH);
+      ctx.globalAlpha = Math.min(1, 0.5 * P.body);
+      ctx.drawImage(tint, trio[ci][0] * sep, 0, W, H);
+    }
     ctx.globalAlpha = 1;
   }
 

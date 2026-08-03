@@ -49,3 +49,21 @@ Five presets: SMOKE, TUNNEL, OIL, GHOST, SHATTER.
 ## Requirements
 Camera access needs **HTTPS** and Safari proper — in-app browsers are blocked.
 Nothing is recorded and nothing leaves the device.
+
+
+## Why it stopped burning out
+Additive light with a feedback factor f reaches a steady state of
+add/(1-f). At f=0.93 that is 1.43 — past clipping within about 30 frames,
+which is why everything went white and the body read as a black hole.
+
+Three changes:
+- a **bleed** slider subtracts a little from the feedback buffer each frame,
+  so accumulated light has somewhere to go. Steady state is now 0.28.
+- the body is **cut out** of the accumulated light rather than filled, so the
+  light lives around you and your silhouette is a clean window.
+- mesh cells were opaque rectangles at full alpha; they are now 33% of that
+  brightness.
+
+The rim is drawn as three offset copies in three hues. The split and the
+thickness both scale with how much you are moving, so it breathes rather than
+sitting at a fixed offset.
