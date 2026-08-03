@@ -50,6 +50,13 @@
     max-height:74vh; overflow-y:auto; -webkit-overflow-scrolling:touch;
   }
   #panel.open { transform:translateY(0); }
+  /* while a slider is being dragged the panel drops to near-transparent,
+     so the change can actually be seen underneath it */
+  #panel.scrub { background:rgba(12,10,20,.12); backdrop-filter:none;
+                 -webkit-backdrop-filter:none; }
+  #panel.scrub .row label { opacity:.9; text-shadow:0 1px 3px #000; }
+  #panel.scrub .presets, #panel.scrub .toggles { opacity:.25; }
+  #panel, #panel .row label { transition:background .18s, opacity .18s; }
   #grip {
     height:26px; display:flex; align-items:center; justify-content:center;
     gap:9px; cursor:pointer; font-size:11px; letter-spacing:.14em;
@@ -159,7 +166,7 @@ var P = {
   glow:     0.75,   // brightness of the ink laid down
   hue:      0.03,   // hue rotation per second
   sat:      0.85,
-  particles: 820,
+  particles: 1100,
   trail:    0.85,   // particle streak length
   thresh:   0.06,   // motion below this is ignored
   edge:     1.2,    // how much the outline of you is favoured
@@ -169,6 +176,8 @@ var P = {
   speed:    0.32,  // how fast the lines travel
   deshake:  0.85,  // cancels whole-frame camera movement
   face:     1.1,   // how hard the facial contours deflect lines
+  detail:   1.5,   // blur radius: low keeps features, high is smooth
+  contrast: 1.4,   // local contrast lifted out of the camera image
 };
 
 var SPECS = [
@@ -191,33 +200,35 @@ var SPECS = [
   ["speed",     "speed",     0.1,  2.5,   0.05],
   ["deshake",   "de-shake",  0,    1,     0.05],
   ["face",      "face detail", 0,  2.5,   0.05],
+  ["detail",    "smoothness", 1,   5,     0.5],
+  ["contrast",  "contrast",  0,    3,     0.05],
 ];
 
 var PRESETS = {
   silk:    { feedback:.90, zoom:1.001, spin:.02, drift:.08, warp:9,
              chroma:5,  glow:.7,  hue:.04, sat:.5,  particles:820, trail:.85,
              thresh:.06, edge:1.0, body:.35, bleed:.07, smooth:.09,
-             speed:.30, deshake:.9, face:1.0 },
+             speed:.30, deshake:.9, face:1.0, detail:2.0, contrast:1.2  },
   portrait:{ feedback:.93, zoom:1.000, spin:.01, drift:.04, warp:6,
              chroma:4,  glow:.8,  hue:.02, sat:.45, particles:900, trail:.95,
              thresh:.07, edge:.7,  body:.25, bleed:.05, smooth:.08,
-             speed:.22, deshake:.95, face:2.1 },
+             speed:.22, deshake:.95, face:2.1, detail:1.0, contrast:2.2  },
   ember:   { feedback:.91, zoom:1.002, spin:.04, drift:.14, warp:16,
              chroma:8,  glow:.85, hue:.02, sat:.95, particles:760, trail:.9,
              thresh:.05, edge:1.3, body:.45, bleed:.06, smooth:.11,
-             speed:.38, deshake:.85, face:1.3 },
+             speed:.38, deshake:.85, face:1.3, detail:1.5, contrast:1.5  },
   ghost:   { feedback:.95, zoom:1.000, spin:0,   drift:.05, warp:6,
              chroma:3,  glow:.42, hue:.02, sat:.2,  particles:560, trail:.95,
              thresh:.07, edge:1.5, body:.28, bleed:.04, smooth:.07,
-             speed:.22, deshake:.95, face:.8 },
+             speed:.22, deshake:.95, face:.8, detail:2.5, contrast:0.9  },
   ribbon:  { feedback:.78, zoom:1.000, spin:0,   drift:.06, warp:12,
              chroma:7,  glow:1.0, hue:.12, sat:.85, particles:480, trail:1,
              thresh:.05, edge:.9,  body:.4,  bleed:.13, smooth:.14,
-             speed:.55, deshake:.8, face:1.4 },
+             speed:.55, deshake:.8, face:1.4, detail:1.5, contrast:1.3  },
   storm:   { feedback:.88, zoom:1.004, spin:.18, drift:.5,  warp:44,
              chroma:16, glow:.95, hue:.25, sat:1,   particles:900, trail:.6,
              thresh:.04, edge:.8,  body:.55, bleed:.08, smooth:.22,
-             speed:.9,  deshake:.6, face:.6 },
+             speed:.9,  deshake:.6, face:.6, detail:2.0, contrast:1.0  },
 };
 
 
@@ -246,6 +257,21 @@ SPECS.forEach(function (sp) {
     P[key] = parseFloat(input.value);
     out.textContent = fmt(P[key], sp[4]);
   });
+  var clear;
+  function scrubOn() {
+    panel.classList.add("scrub");
+    clearTimeout(clear);
+  }
+  function scrubOff() {
+    clearTimeout(clear);
+    clear = setTimeout(function () { panel.classList.remove("scrub"); }, 450);
+  }
+  input.addEventListener("pointerdown", scrubOn);
+  input.addEventListener("touchstart", scrubOn, { passive: true });
+  input.addEventListener("input", scrubOn);
+  input.addEventListener("pointerup", scrubOff);
+  input.addEventListener("touchend", scrubOff, { passive: true });
+  input.addEventListener("change", scrubOff);
   wrap.appendChild(row);
 });
 
@@ -341,7 +367,7 @@ var silReady = false;
    gives a gradient that is zero everywhere except one pixel. so the mask is
    blurred heavily, sampled bilinearly, and combined with the camera's own
    luminance so the interior has structure too. */
-var FW = 176, FH = 132;   // resized to the video aspect on first frame
+var FW = 288, FH = 216;   // resized to the video aspect on first frame
 var fieldA = new Float32Array(FW * FH);
 var fieldB = new Float32Array(FW * FH);
 var fieldPrev = new Float32Array(FW * FH);
@@ -372,7 +398,7 @@ function buildField(arr, w, h, lumaSrc) {
   /* separable box blur. a wide radius matters more than many small passes:
      the streamline has to see a smooth field or it wanders off its isoline.
      measured, radius 3 takes the drift from 0.19 to under 0.10. */
-  var R = 3;
+  var R = Math.max(1, Math.round(P.detail));
   for (var pass = 0; pass < 2; pass++) {
     for (var y3 = 0; y3 < FH; y3++) {
       var base = y3 * FW;
@@ -440,7 +466,7 @@ function coverRect() {
 
 /* the contour direction: perpendicular to the gradient */
 function contourAt(x, y) {
-  var d = 2.8;
+  var d = 1.0 + P.detail * 0.55;
   var gx = fsamp(x + d, y) - fsamp(x - d, y);
   var gy = fsamp(x, y + d) - fsamp(x, y - d);
   var m = Math.hypot(gx, gy);
@@ -451,6 +477,7 @@ function contourAt(x, y) {
 /* luminance of the camera at field resolution, so the interior of the face
    carries contours rather than being flat */
 var lumaField = new Float32Array(FW * FH);
+var lumaBlur = new Float32Array(FW * FH);
 function buildLuma() {
   var d = sctx.getImageData(0, 0, SW, SH).data;
   var lo = 1, hi = 0;
@@ -471,6 +498,40 @@ function buildLuma() {
   var span = Math.max(0.08, hi - lo);
   for (var j = 0; j < lumaField.length; j++) {
     lumaField[j] = (lumaField[j] - lo) / span;
+  }
+
+  /* local contrast. a global stretch cannot recover a cheekbone or a nostril
+     because those are small differences sitting on a large gradient.
+     subtracting a blurred copy leaves exactly that fine structure. */
+  if (P.contrast > 0) {
+    var LR = 6;
+    for (var y2 = 0; y2 < FH; y2++) {
+      var b2 = y2 * FW;
+      for (var x2 = 0; x2 < FW; x2++) {
+        var sm = 0, cn = 0;
+        for (var k = -LR; k <= LR; k += 2) {
+          var xx = x2 + k;
+          if (xx < 0 || xx >= FW) continue;
+          sm += lumaField[b2 + xx]; cn++;
+        }
+        lumaBlur[b2 + x2] = sm / cn;
+      }
+    }
+    for (var x3 = 0; x3 < FW; x3++) {
+      for (var y3 = 0; y3 < FH; y3++) {
+        var sm2 = 0, cn2 = 0;
+        for (var k2 = -LR; k2 <= LR; k2 += 2) {
+          var yy = y3 + k2;
+          if (yy < 0 || yy >= FH) continue;
+          sm2 += lumaBlur[yy * FW + x3]; cn2++;
+        }
+        var base = sm2 / cn2;
+        var i3 = y3 * FW + x3;
+        var hp = lumaField[i3] - base;
+        lumaField[i3] = Math.max(0, Math.min(1,
+          lumaField[i3] + hp * P.contrast * 2.2));
+      }
+    }
   }
 }
 
@@ -521,15 +582,15 @@ function matchAspect() {
   var vw = cam.videoWidth, vh = cam.videoHeight;
   if (!vw || !vh) return;
   var a = vw / vh;
-  var nSW = a >= 1 ? 256 : Math.round(256 * a);
-  var nSH = a >= 1 ? Math.round(256 / a) : 256;
+  var nSW = a >= 1 ? 384 : Math.round(384 * a);
+  var nSH = a >= 1 ? Math.round(384 / a) : 384;
   if (nSW !== SW || nSH !== SH) {
     SW = nSW; SH = nSH;
     small.width = SW; small.height = SH;
     prev = null;
   }
-  var nFW = a >= 1 ? 176 : Math.round(176 * a);
-  var nFH = a >= 1 ? Math.round(176 / a) : 176;
+  var nFW = a >= 1 ? 288 : Math.round(288 * a);
+  var nFH = a >= 1 ? Math.round(288 / a) : 288;
   if (nFW !== FW || nFH !== FH) {
     FW = nFW; FH = nFH;
     fieldA = new Float32Array(FW * FH);
@@ -537,6 +598,7 @@ function matchAspect() {
     fieldPrev = new Float32Array(FW * FH);
     fieldSeeded = false;
     lumaField = new Float32Array(FW * FH);
+    lumaBlur = new Float32Array(FW * FH);
     tracers.length = 0;
   }
   var nSILW = a >= 1 ? 384 : Math.round(384 * a);
@@ -761,7 +823,7 @@ function maskAt(u, v) {
    each direction and taking whichever shift best explains the change gives a
    direction — that is the flow. no model, no face detection, works in any
    light and responds to hands and background too. */
-var SW = 256, SH = 192;         // sampling resolution, corrected to the video
+var SW = 384, SH = 288;         // sampling resolution, corrected to the video
 var COLS = 32, ROWS = 24;       // flow grid
 var small = document.createElement("canvas");
 small.width = SW; small.height = SH;
@@ -835,10 +897,13 @@ function computeFlow() {
 }
 
 function sampleFlow(u, v) {
+  if (!isFinite(u) || !isFinite(v)) return { x: 0, y: 0, m: 0 };
   var gx = Math.max(0, Math.min(COLS - 1, Math.floor(u * COLS)));
   var gy = Math.max(0, Math.min(ROWS - 1, Math.floor(v * ROWS)));
   var i = gy * COLS + gx;
-  return { x: fx[i], y: fy[i], m: fm[i] };
+  var a = fx[i], b = fy[i], c = fm[i];
+  return { x: isFinite(a) ? a : 0, y: isFinite(b) ? b : 0,
+           m: isFinite(c) ? c : 0 };
 }
 
 /* ---------- streamline tracers ----------
@@ -1018,8 +1083,11 @@ function frame(t) {
 
     for (var ti = 0; ti < tracers.length; ti++) {
       var tr = tracers[ti];
+      if (!isFinite(tr.x) || !isFinite(tr.y)) { respawn(tr); continue; }
       var v = fsamp(tr.x, tr.y);
-      if (v < 0.10 || !regionOK(tr.x, tr.y)) { respawn(tr); continue; }
+      if (!isFinite(v) || v < 0.10 || !regionOK(tr.x, tr.y)) {
+        respawn(tr); continue;
+      }
 
       // colour by the field value: interior and rim read differently
       var hh2 = (hue + v * 120 + ti * 0.7) % 360;
@@ -1027,7 +1095,7 @@ function frame(t) {
       ctx.strokeStyle = "hsl(" + hh2 + "," +
         Math.round(55 + P.sat * 45) + "%," +
         Math.round(38 + v * 34) + "%)";
-      ctx.lineWidth = 0.5 + v * 1.1;
+      ctx.lineWidth = 0.45 + v * 0.9;
       ctx.globalAlpha = Math.min(0.9, (0.14 + v * 0.5) * P.glow *
                                       Math.max(0, fade));
 
@@ -1036,12 +1104,13 @@ function frame(t) {
       var cx2 = tr.x, cy2 = tr.y;
       for (var st = 0; st < steps; st++) {
         var c = contourAt(cx2, cy2);
-        if (!c) break;
+        if (!c || !isFinite(c.x) || !isFinite(c.y)) break;
         // the optical flow nudges the line, so moving warps the field
         var fl = sampleFlow(cx2 / FW, cy2 / FH);
-        cx2 += c.x * 1.25 + fl.x * P.warp * 0.05;
-        cy2 += c.y * 1.25 + fl.y * P.warp * 0.05;
-        if (cx2 < 0 || cx2 >= FW || cy2 < 0 || cy2 >= FH) break;
+        cx2 += c.x * 1.7 + fl.x * P.warp * 0.05;
+        cy2 += c.y * 1.7 + fl.y * P.warp * 0.05;
+        if (!isFinite(cx2) || !isFinite(cy2) ||
+            cx2 < 0 || cx2 >= FW || cy2 < 0 || cy2 >= FH) break;
         ctx.lineTo(ox2 + cx2 * sx2, oy2 + cy2 * sy2);
       }
       ctx.stroke();

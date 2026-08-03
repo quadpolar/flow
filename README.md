@@ -55,32 +55,31 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 10 — facial features
+## Build 11 — actual detail
 
-MediaPipe Face Landmarker runs alongside the segmenter, sharing the same
-fileset. 478 tracked points give real eye, lip, brow, nose and jaw geometry.
+The field was being blurred at radius 3 over two passes, an effective support
+of 13 cells. At a field width of 176 with a face spanning 40% of frame, that
+smoothed across 19% of the face — which is why features read as generalised
+no matter how good the landmarks were.
 
-The contours are rasterised into a buffer at field resolution and folded into
-the scalar field before the blur, weighted by how hard each feature should
-deflect a line: eyes and lips hardest, the face oval softest. The nose bridge
-and wings are drawn from explicit landmark indices, since they have no
-connector set of their own.
+- field resolution 176x132 -> 288x216, sampling 256x192 -> 384x288
+- the blur radius is now the **smoothness** slider, defaulting to 1.5 instead
+  of 3. The gradient stencil scales with it, so lowering it sharpens the
+  field and the streamline response together.
+- a **contrast** slider adds a local-contrast pass: a blurred copy of the
+  luminance is subtracted from itself, which surfaces cheekbone, nostril,
+  eyelid and lip shading. A global range stretch cannot recover those,
+  because they are small differences sitting on a large gradient.
+- 1100 lines instead of 820, thinner, with a longer step to suit the finer
+  field.
 
-Because the field is what streamlines follow, a raised contour at an eyelid
-deflects a line exactly the way the body silhouette does — the features are
-part of the same flow rather than an overlay.
+## Scrubbing
+The panel drops to near-transparent while a slider is being dragged, and
+returns 450ms after release — so a change can be seen while it is being made.
 
-Measured with deliberately flat lighting, where luminance gives nothing to
-follow:
-
-  no landmarks   : 0 cells with any usable gradient
-  with landmarks : 268 cells
-
-That is the case the landmarker exists for. Under flat or backlit conditions
-the shading-driven field is empty and the face reads as a blank silhouette.
-
-The **face detail** slider scales the effect; the PORTRAIT preset is built
-around it — slow, dense, high face weight, low body weight.
-
-Costs a second model download (cached) and a second inference per frame. If
-the landmarker fails to load, the segmenter and everything else carry on.
+## A NaN guard
+Buffers are reallocated when the video aspect is detected, and a tracer
+surviving across that could read stale geometry; one non-finite value then
+propagated through every subsequent step. Positions, contour vectors and flow
+samples are all checked now. Verified over repeated runs: no non-finite
+coordinates reach the canvas.
