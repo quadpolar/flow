@@ -55,26 +55,25 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 19 — the aliasing
+## Build 20 — the bloom was a blob
 
-The jagged edges were not in the bloom buffer being upscaled. They came from
-the mask grid, which was 64x48 — each cell covering about 6 x 18 screen
-pixels — sampled with nearest-neighbour. Hard steps at that size survive
-every downstream blur.
+The bloom field was built from the mask alone: 1 inside the subject, 0
+outside. After blurring that gives a soft edge and a completely FLAT
+interior, so the gradient map had a single value to work with across the
+whole body. Only the rim could carry colour, and the figure could not read
+as a person.
 
-Three changes, each measured against a soft-edged test shape sampled 400
-times across its boundary:
+The field now combines both: the mask decides WHERE the subject is, the
+camera's own luminance decides WHAT it looks like inside. The face reads
+separately from the neck, and the shoulders fall away.
 
-- **bilinear sampling** of the mask instead of nearest
-- **grid raised** from 64x48 to 176x132
-- **anti-aliasing pass** on the mask itself. Area averaging stops helping
-  once a grid cell covers roughly one source pixel — the result is binary
-  again — so a separable blur, radius 3 over two passes, is applied after
-  the downsample
+Measured on a synthetic figure with realistic top-down lighting, sampling
+well inside the silhouette:
 
-  before          6 distinct values across the edge
-  bilinear only  22
-  with the blur  52
+  bloom form 0    interior standard deviation 44.9
+  bloom form 1.5  interior standard deviation 96.1
 
-The bloom buffer also went from 96x170 to 160x284, now that the source can
-support the detail.
+Luminance is also rebuilt every frame in bloom mode. It was only refreshed
+when the segmenter fired, so the interior lagged behind the silhouette.
+
+New slider: **bloom form**.
