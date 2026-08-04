@@ -179,7 +179,7 @@ var P = {
   face:     0.9,   // how hard the feature outlines deflect lines
   mesh:     0.9,   // the full facial surface mesh
   dotsize:  1.1,   // radius of a landmark dot
-  bwarp:    11,    // how much noise distorts the silhouette
+  bwarp:    0,     // background churn only; 0 keeps your true shape
   smear:    0.42,  // vertical slit-scan bleed
   bhue:     1.0,   // palette cycling speed
   bgain:    1.35,  // contrast into the palette
@@ -226,32 +226,32 @@ var PRESETS = {
              chroma:7,  glow:0.85, hue:0.18, sat:0.95, particles:2600, trail:1,
              thresh:.05, edge:.9,  body:.4,  bleed:.13, smooth:0.3,
              speed:.55, deshake:.8, face:.9, mesh:.9, detail:1.5,
-             contrast:1.4, dotsize:1.1, bwarp:11, smear:0.42, bhue:1.0, bgain:1.35, bspeed:0.55, bform:1.5      },
+             contrast:1.4, dotsize:1.1, bwarp:0, smear:0.42, bhue:1.0, bgain:1.35, bspeed:0.55, bform:1.6       },
   etch:    { feedback:.72, zoom:1.000, spin:0,   drift:.04, warp:8,
              chroma:5,  glow:0.9,hue:0.12, sat:0.85,  particles:4200, trail:1,
              thresh:.05, edge:.7,  body:.3,  bleed:.16, smooth:0.28,
              speed:.42, deshake:.9, face:.75, mesh:1.5, detail:1,
-             contrast:2.1, dotsize:0.7, bwarp:7, smear:0.25, bhue:0.7, bgain:1.6, bspeed:0.4, bform:2.0      },
+             contrast:2.1, dotsize:0.7, bwarp:0, smear:0.25, bhue:0.7, bgain:1.6, bspeed:0.4, bform:2.1       },
   skin:    { feedback:.84, zoom:1.000, spin:.01, drift:.05, warp:10,
              chroma:6,  glow:0.8, hue:0.1, sat:0.8,  particles:3800, trail:.95,
              thresh:.06, edge:.8,  body:.28, bleed:.10, smooth:0.26,
              speed:.4,  deshake:.9, face:.5, mesh:1.8, detail:1,
-             contrast:2.6, dotsize:0.9, bwarp:9, smear:0.35, bhue:0.8, bgain:1.4, bspeed:0.45, bform:1.8      },
+             contrast:2.6, dotsize:0.9, bwarp:0, smear:0.35, bhue:0.8, bgain:1.4, bspeed:0.45, bform:1.9       },
   silk:    { feedback:.90, zoom:1.001, spin:.02, drift:.08, warp:9,
              chroma:5,  glow:0.65,  hue:0.08, sat:0.7,  particles:3000, trail:.85,
              thresh:.06, edge:1.0, body:.35, bleed:.07, smooth:0.24,
              speed:.30, deshake:.9, face:.9, mesh:.8, detail:2,
-             contrast:1.2, dotsize:1.2, bwarp:14, smear:0.55, bhue:0.8, bgain:1.2, bspeed:0.35, bform:1.2      },
+             contrast:1.2, dotsize:1.2, bwarp:0, smear:0.55, bhue:0.8, bgain:1.2, bspeed:0.35, bform:1.3       },
   ghost:   { feedback:.95, zoom:1.000, spin:0,   drift:.05, warp:6,
              chroma:3,  glow:0.45, hue:0.05, sat:0.35,  particles:2200, trail:.95,
              thresh:.07, edge:1.5, body:.28, bleed:.04, smooth:0.18,
              speed:.22, deshake:.95, face:.8, mesh:.6, detail:2.5,
-             contrast:.9, dotsize:0.8, bwarp:18, smear:0.75, bhue:0.5, bgain:1.0, bspeed:0.25, bform:0.9      },
+             contrast:.9, dotsize:0.8, bwarp:4, smear:0.75, bhue:0.5, bgain:1.0, bspeed:0.25, bform:1.0       },
   storm:   { feedback:.88, zoom:1.004, spin:.18, drift:.5,  warp:44,
              chroma:16, glow:0.85, hue:0.35, sat:1,   particles:4000, trail:.6,
              thresh:.04, edge:.8,  body:.55, bleed:.08, smooth:0.45,
              speed:.9,  deshake:.6, face:.6, mesh:.7, detail:2,
-             contrast:1.0, dotsize:1.4, bwarp:24, smear:0.85, bhue:2.2, bgain:1.7, bspeed:1.2, bform:1.6      },
+             contrast:1.0, dotsize:1.4, bwarp:8, smear:0.85, bhue:2.2, bgain:1.7, bspeed:1.2, bform:1.7       },
 };
 
 
@@ -1104,23 +1104,28 @@ function thermal(v, shift, out) {
 var _rgb = [0, 0, 0];
 
 function drawBloom(tsec) {
-  // 1. the mask as a soft field, warped by drifting noise
+  /* 1. coverage only. the warp is applied to the BACKGROUND sample, not to
+        the subject — distorting the silhouette itself is what stopped it
+        looking like a specific person. */
   for (var y = 0; y < BH; y++) {
     for (var x = 0; x < BW; x++) {
-      var n = noise2(x, y, tsec * P.bspeed);
-      var u = (x + n * P.bwarp) / BW;
-      var v = (y + n * P.bwarp * 0.6) / BH;
-      var c = coverAt(u, v);
-      /* inside the subject the value follows the camera's own shading, so
-         the face reads separately from the neck and the shoulders fall
-         away. outside it stays low. the mask decides WHERE, the luminance
-         decides WHAT — a mask alone can only ever be a silhouette. */
-      var l2 = lumaAt(u, v);
-      bloomF[y * BW + x] = c * (0.30 + l2 * P.bform) +
-                           (1 - c) * l2 * 0.06;
+      var u0 = x / BW, v0 = y / BH;
+      var c0 = coverAt(u0, v0);
+      var c;
+      if (P.bwarp > 0 && c0 < 0.5) {
+        // only the surrounding field is allowed to churn
+        var n = noise2(x, y, tsec * P.bspeed);
+        c = coverAt(u0 + n * P.bwarp / BW, v0 + n * P.bwarp * 0.6 / BH);
+      } else {
+        c = c0;
+      }
+      bloomF[y * BW + x] = c;
     }
   }
-  // 2. blur it wide. the subject has to melt into the ground.
+
+  /* 2. blur the SILHOUETTE only. blurring after the luminance is folded in
+        smooths the interior structure away at the same rate it softens the
+        edge, which is what made the figure a featureless blob. */
   var R = 4;
   for (var pass = 0; pass < 3; pass++) {
     for (var y2 = 0; y2 < BH; y2++) {
@@ -1135,11 +1140,10 @@ function drawBloom(tsec) {
         bloomT[b2 + x2] = sm / cn;
       }
     }
+    var RV = Math.round(R * (1 + P.smear * 3));
     for (var x3 = 0; x3 < BW; x3++) {
       for (var y3 = 0; y3 < BH; y3++) {
         var sm2 = 0, cn2 = 0;
-        // taller vertical kernel: this is the slit-scan smear
-        var RV = Math.round(R * (1 + P.smear * 3));
         for (var k3 = -RV; k3 <= RV; k3++) {
           var yy = y3 + k3;
           if (yy < 0 || yy >= BH) continue;
@@ -1149,15 +1153,22 @@ function drawBloom(tsec) {
       }
     }
   }
-  // 3. remap through the palette
+
+  /* 3. now fold in the body's own shading, at full sharpness, and remap */
   var d = bloomImg.data;
   var shift = (tsec * P.bhue * 0.09) % 1;
-  for (var i2 = 0; i2 < bloomF.length; i2++) {
-    var vv = bloomF[i2] * P.bgain +
-             noise2((i2 % BW) * 0.7, (i2 / BW | 0) * 0.7, tsec * 0.3) * 0.10;
-    thermal(vv, shift, _rgb);
-    var o = i2 * 4;
-    d[o] = _rgb[0]; d[o + 1] = _rgb[1]; d[o + 2] = _rgb[2]; d[o + 3] = 255;
+  for (var y4 = 0; y4 < BH; y4++) {
+    for (var x4 = 0; x4 < BW; x4++) {
+      var i2 = y4 * BW + x4;
+      var soft = bloomF[i2];
+      var l2 = lumaAt(x4 / BW, y4 / BH);
+      // the soft silhouette says WHERE, the sharp luminance says WHAT
+      var vv = soft * (0.28 + l2 * P.bform) + (1 - soft) * l2 * 0.05;
+      vv *= P.bgain;
+      thermal(vv, shift, _rgb);
+      var o = i2 * 4;
+      d[o] = _rgb[0]; d[o + 1] = _rgb[1]; d[o + 2] = _rgb[2]; d[o + 3] = 255;
+    }
   }
   bctx2.putImageData(bloomImg, 0, 0);
 }

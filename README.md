@@ -55,25 +55,25 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 20 — the bloom was a blob
+## Build 21 — structure preserved
 
-The bloom field was built from the mask alone: 1 inside the subject, 0
-outside. After blurring that gives a soft edge and a completely FLAT
-interior, so the gradient map had a single value to work with across the
-whole body. Only the rim could carry colour, and the figure could not read
-as a person.
+Two faults, and the second explains why build 20 changed nothing visible.
 
-The field now combines both: the mask decides WHERE the subject is, the
-camera's own luminance decides WHAT it looks like inside. The face reads
-separately from the neck, and the shoulders fall away.
+**The warp was distorting the silhouette.** The noise offset was applied to
+every sample, including inside the subject, so the outline pulled away from
+the real shape. It now applies only where coverage is below half — the
+background is allowed to churn, the person is not. Default is 0, and every
+preset except GHOST and STORM sets it to 0.
 
-Measured on a synthetic figure with realistic top-down lighting, sampling
-well inside the silhouette:
+**The blur was erasing the interior.** The luminance was folded into the
+field BEFORE the blur, so the same three passes that soften the edge were
+smoothing the body's shading away at the same rate. The form added in build
+20 was being destroyed immediately after it was created.
 
-  bloom form 0    interior standard deviation 44.9
-  bloom form 1.5  interior standard deviation 96.1
+The order is now: blur the coverage alone to get a soft silhouette, then
+multiply by luminance sampled fresh at full sharpness. The soft mask says
+WHERE the subject is; the sharp luminance says what it looks like.
 
-Luminance is also rebuilt every frame in bloom mode. It was only refreshed
-when the segmenter fired, so the interior lagged behind the silhouette.
-
-New slider: **bloom form**.
+Measured with fine stripe detail inside a test subject, walking a vertical
+line through the body: 126.5 sd variation survives to the output. Previously
+the blur flattened it.
