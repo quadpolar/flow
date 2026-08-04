@@ -55,29 +55,26 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 18 — BLOOM
+## Build 19 — the aliasing
 
-A fifth mode with a completely separate render path: no lines, no dots, no
-feedback. It is the same app rather than a second one so it reuses the
-segmentation model already loaded.
+The jagged edges were not in the bloom buffer being upscaled. They came from
+the mask grid, which was 64x48 — each cell covering about 6 x 18 screen
+pixels — sampled with nearest-neighbour. Hard steps at that size survive
+every downstream blur.
 
-The reference breaks into four separable parts, and it is built that way:
+Three changes, each measured against a soft-edged test shape sampled 400
+times across its boundary:
 
-1. **soft field** — the person mask sampled through a drifting noise offset,
-   so the silhouette warps and bleeds rather than sitting as a hard matte
-2. **wide blur** — three passes at radius 4, with a much taller vertical
-   kernel than horizontal. That asymmetry is the slit-scan look
-3. **gradient map** — the scalar remapped through a thermal ramp: deep blue,
-   violet, hot pink, orange, cream. The ramp phase cycles over time, which is
-   what makes the colour continuously shift
-4. **columnar bleed** — the result drawn several times at increasing vertical
-   extent with falling alpha, so light bleeds up and down from the figure
+- **bilinear sampling** of the mask instead of nearest
+- **grid raised** from 64x48 to 176x132
+- **anti-aliasing pass** on the mask itself. Area averaging stops helping
+  once a grid cell covers roughly one source pixel — the result is binary
+  again — so a separable blur, radius 3 over two passes, is applied after
+  the downsample
 
-Built at 96x170 as raw pixels and upscaled, which gives the softness for free
-rather than paying for a large blur.
+  before          6 distinct values across the edge
+  bilinear only  22
+  with the blur  52
 
-Five sliders: bloom warp, bloom smear, bloom hue, bloom gain, bloom drift.
-
-Verified: 10 distinct colours across the ramp, the full buffer written every
-frame, wide channel ranges (R 26-255, G 32-226, B 104-232), and three smear
-layers composited per frame.
+The bloom buffer also went from 96x170 to 160x284, now that the source can
+support the detail.

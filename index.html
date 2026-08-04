@@ -397,8 +397,10 @@ view.addEventListener("pointerdown", function () {
 var segmenter = null, segReady = false, segTried = false, segErr = "";
 var faceLM = null, faceReady = false, faceConn = null;
 var faceCanvas = null, fctx = null;
-var MW = 64, MH = 48;                 // mask resolution on the flow grid
+var MW = 176, MH = 132;   // mask resolution — coarse here is the main
+                          // source of visible aliasing downstream
 var maskGrid = new Float32Array(MW * MH);
+var maskBlur = new Float32Array(MW * MH);
 var maskCanvas = document.createElement("canvas");
 maskCanvas.width = MW; maskCanvas.height = MH;
 var mctx = maskCanvas.getContext("2d", { willReadFrequently: true });
@@ -819,8 +821,9 @@ function updateMask(tms) {
       for (var gx = 0; gx < MW; gx++) {
         var x0 = Math.floor(gx * w / MW), x1 = Math.floor((gx + 1) * w / MW);
         var hit = 0, n = 0;
-        for (var y = y0; y < y1; y += 2) {
-          for (var x = x0; x < x1; x += 2) {
+        for (var y = y0; y <= y1; y++) {
+          for (var x = x0; x <= x1; x++) {
+            if (y >= h || x >= w) continue;
             if (arr[y * w + x] !== 0) hit++;
             n++;
           }
@@ -829,6 +832,37 @@ function updateMask(tms) {
         var i = gy * MW + gx;
         maskGrid[i] += (v - maskGrid[i]) * 0.72;   // soften over time
       }
+    }
+
+    /* anti-alias the mask. area averaging cannot help once a grid cell
+       covers roughly one source pixel — the result is binary again, and a
+       binary edge stair-steps through every downstream blur. a short
+       separable blur gives the boundary real intermediate values. */
+    var MR = 3;
+    for (var mp = 0; mp < 2; mp++) {
+    for (var by2 = 0; by2 < MH; by2++) {
+      var bb = by2 * MW;
+      for (var bx2 = 0; bx2 < MW; bx2++) {
+        var sm3 = 0, cn3 = 0;
+        for (var kx = -MR; kx <= MR; kx++) {
+          var qx = bx2 + kx;
+          if (qx < 0 || qx >= MW) continue;
+          sm3 += maskGrid[bb + qx]; cn3++;
+        }
+        maskBlur[bb + bx2] = sm3 / cn3;
+      }
+    }
+    for (var bx3 = 0; bx3 < MW; bx3++) {
+      for (var by3 = 0; by3 < MH; by3++) {
+        var sm4 = 0, cn4 = 0;
+        for (var ky = -MR; ky <= MR; ky++) {
+          var qy = by3 + ky;
+          if (qy < 0 || qy >= MH) continue;
+          sm4 += maskBlur[qy * MW + bx3]; cn4++;
+        }
+        maskGrid[by3 * MW + bx3] = sm4 / cn4;
+      }
+    }
     }
     // and a proper silhouette bitmap at higher resolution
     var d = silImg.data;
@@ -868,9 +902,19 @@ function updateMask(tms) {
    term for weighting; this is the plain answer to "is this me". */
 function coverAt(u, v) {
   if (!segReady) return 0;
-  var gx = Math.max(0, Math.min(MW - 1, Math.floor(u * MW)));
-  var gy = Math.max(0, Math.min(MH - 1, Math.floor(v * MH)));
-  return maskGrid[gy * MW + gx];
+  /* bilinear. nearest-neighbour on a coarse grid gives hard steps that
+     survive every downstream blur — the aliasing was here, not in the
+     buffers being upscaled. */
+  var fx2 = Math.max(0, Math.min(MW - 1.001, u * MW - 0.5));
+  var fy2 = Math.max(0, Math.min(MH - 1.001, v * MH - 0.5));
+  var x0 = fx2 | 0, y0 = fy2 | 0;
+  var ax = fx2 - x0, ay = fy2 - y0;
+  var x1 = Math.min(MW - 1, x0 + 1), y1 = Math.min(MH - 1, y0 + 1);
+  var r0 = y0 * MW, r1 = y1 * MW;
+  return maskGrid[r0 + x0] * (1 - ax) * (1 - ay) +
+         maskGrid[r0 + x1] * ax * (1 - ay) +
+         maskGrid[r1 + x0] * (1 - ax) * ay +
+         maskGrid[r1 + x1] * ax * ay;
 }
 
 /* is a point in field space allowed for the current region? */
@@ -1006,7 +1050,7 @@ function dot(nx, ny, nz) {
    a soft scalar field, warped by a drifting noise field, smeared vertically,
    and remapped through a thermal palette. built at low resolution as raw
    pixels and upscaled, which gives the blur for free. */
-var BW = 96, BH = 170;
+var BW = 160, BH = 284;
 var bloomCv = document.createElement("canvas");
 bloomCv.width = BW; bloomCv.height = BH;
 var bctx2 = bloomCv.getContext("2d");
