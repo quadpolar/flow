@@ -55,32 +55,37 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 22 — softening the interior only
+## Build 23 — why it read as low resolution
 
-Build 21 fixed the interior being erased, and overshot: at full sharpness the
-luminance resolves skin texture, which reads as a processed photograph rather
-than a form.
+The blur was not the problem. Blurry and low-resolution are independent: a
+blur on a large image is soft but every pixel is uniquely computed. Three
+things were making it undersampled rather than merely soft.
 
-Softening it cannot be done with the existing blur, because that one shapes
-the silhouette — turning it up destroys the outline. The shading now gets its
-own blur with its own radius, applied after the silhouette blur and
-independent of it.
+**Colour was applied before upscaling.** The field was mapped to RGB at
+160x284 and then scaled 2.4x to the screen, so every boundary between palette
+bands was smeared across two or three screen pixels, and the in-between
+values were RGB interpolations belonging to neither stop. The palette lookup
+now happens per output pixel at CSS resolution, 390x844, while the field
+stays small because it is genuinely low frequency. That is the crisp-and-soft
+combination.
 
-Measured against a test luminance carrying both coarse facial structure
-(period about 39 cells) and fine skin texture (about 4 cells):
+**No dithering.** Large smooth gradients band visibly in 8 bits. A small
+ordered offset before quantisation breaks the contours.
 
-  soften 0   variation 116.1   everything, including texture
-  soften 1    98.1
-  soften 2    44.6             texture gone, features intact
-  soften 3    31.1             the default
-  soften 5    27.5
-  soften 8     0.1             features gone too
+**Fake depth.** The mask was flat inside, so there was no volume to read. A
+pyramid of successively halved and blurred copies, summed back, gives a wide
+smooth falloff from the silhouette edge — high deep inside the body, falling
+away at every boundary. Measured on a head-and-shoulders figure: 0.94 at the
+centre, 0.03 near the edge, 0.005 outside. Combined with luminance for
+surface detail, that reads as a depth map.
 
-The local-contrast pass is also scaled to a quarter in bloom mode. It exists
-to sharpen fine detail for the streamlines, which is the opposite of what
-this mode wants.
+**Palette.** Sampling the reference gives one saturated colour holding about
+a fifth of the frame and everything else between 0.22 and 0.44 saturation.
+The old ramp was seven stops all above 0.55 spanning the full hue circle,
+then cycled — a spectrum, not a palette. Four designed palettes replace it.
 
-The background no longer carries the room's luminance at all — it was leaking
-shelves and furniture into the field.
-
-New slider: **bloom soften**.
+**Cost.** The blur is now a running-sum box, two adds per output regardless
+of radius. The bilinear samplers were removed from the hot loops. A full
+bloom frame measures about 40ms in Node; Safari's JIT is usually faster on
+typed-array loops, and the **bloom detail** slider scales the output
+resolution if it needs to come down.
