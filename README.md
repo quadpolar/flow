@@ -55,28 +55,29 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 17 — colour instead of white
+## Build 18 — BLOOM
 
-Additive blending sums RGB, so overlapping strands clip to white. Measured
-with a saturated blue-green strand:
+A fifth mode with a completely separate render path: no lines, no dots, no
+feedback. It is the same app rather than a second one so it reuses the
+segmentation model already loaded.
 
-  overlaps   additive saturation   screen saturation
-      2            0.60                 0.64
-      3            0.40                 0.51
-      5            0.00                 0.33
-      8            0.00                 0.17
+The reference breaks into four separable parts, and it is built that way:
 
-Screen compositing is 1-(1-a)(1-b), which approaches white asymptotically
-rather than clipping. There is a SCREEN / ADD toggle to compare.
+1. **soft field** — the person mask sampled through a drifting noise offset,
+   so the silhouette warps and bleeds rather than sitting as a hard matte
+2. **wide blur** — three passes at radius 4, with a much taller vertical
+   kernel than horizontal. That asymmetry is the slit-scan look
+3. **gradient map** — the scalar remapped through a thermal ramp: deep blue,
+   violet, hot pink, orange, cream. The ramp phase cycles over time, which is
+   what makes the colour continuously shift
+4. **columnar bleed** — the result drawn several times at increasing vertical
+   extent with falling alpha, so light bleeds up and down from the figure
 
-Blend alone was not enough. A light strand still washes out, because it
-starts close to white. Base lightness dropped from 58% to around 34%, with
-saturation raised — after five overlaps that takes surviving saturation from
-0.32 to 0.84.
+Built at 96x170 as raw pixels and upscaled, which gives the softness for free
+rather than paying for a large blur.
 
-Hue also barely varied: it was hue + fieldValue*120 + index*0.7, which is
-close to one colour per frame. It now includes position, so a strand crossing
-60 field cells sweeps about 84 degrees of hue and a run reads as a gradient.
+Five sliders: bloom warp, bloom smear, bloom hue, bloom gain, bloom drift.
 
-The rim, dots and mesh were all lightened the same way and got the same
-treatment.
+Verified: 10 distinct colours across the ramp, the full buffer written every
+frame, wide channel ranges (R 26-255, G 32-226, B 104-232), and three smear
+layers composited per frame.

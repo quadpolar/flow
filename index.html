@@ -179,6 +179,11 @@ var P = {
   face:     0.9,   // how hard the feature outlines deflect lines
   mesh:     0.9,   // the full facial surface mesh
   dotsize:  1.1,   // radius of a landmark dot
+  bwarp:    11,    // how much noise distorts the silhouette
+  smear:    0.42,  // vertical slit-scan bleed
+  bhue:     1.0,   // palette cycling speed
+  bgain:    1.35,  // contrast into the palette
+  bspeed:   0.55,  // how fast the noise field drifts
   detail:   1.5,   // blur radius: low keeps features, high is smooth
   contrast: 1.4,   // local contrast lifted out of the camera image
 };
@@ -205,6 +210,11 @@ var SPECS = [
   ["face",      "features",  0,    2.5,   0.05],
   ["mesh",      "face mesh", 0,    2,     0.05],
   ["dotsize",   "dot size",  0.3,  5,     0.1],
+  ["bwarp",     "bloom warp", 0,   30,    0.5],
+  ["smear",     "bloom smear",0,   1,     0.02],
+  ["bhue",      "bloom hue", 0,    3,     0.05],
+  ["bgain",     "bloom gain",0.2,  3,     0.05],
+  ["bspeed",    "bloom drift",0,   2,     0.05],
   ["detail",    "smoothness", 1,   5,     0.5],
   ["contrast",  "contrast",  0,    3,     0.05],
 ];
@@ -214,32 +224,32 @@ var PRESETS = {
              chroma:7,  glow:0.85, hue:0.18, sat:0.95, particles:2600, trail:1,
              thresh:.05, edge:.9,  body:.4,  bleed:.13, smooth:0.3,
              speed:.55, deshake:.8, face:.9, mesh:.9, detail:1.5,
-             contrast:1.4, dotsize:1.1    },
+             contrast:1.4, dotsize:1.1, bwarp:11, smear:0.42, bhue:1.0, bgain:1.35, bspeed:0.55     },
   etch:    { feedback:.72, zoom:1.000, spin:0,   drift:.04, warp:8,
              chroma:5,  glow:0.9,hue:0.12, sat:0.85,  particles:4200, trail:1,
              thresh:.05, edge:.7,  body:.3,  bleed:.16, smooth:0.28,
              speed:.42, deshake:.9, face:.75, mesh:1.5, detail:1,
-             contrast:2.1, dotsize:0.7    },
+             contrast:2.1, dotsize:0.7, bwarp:7, smear:0.25, bhue:0.7, bgain:1.6, bspeed:0.4     },
   skin:    { feedback:.84, zoom:1.000, spin:.01, drift:.05, warp:10,
              chroma:6,  glow:0.8, hue:0.1, sat:0.8,  particles:3800, trail:.95,
              thresh:.06, edge:.8,  body:.28, bleed:.10, smooth:0.26,
              speed:.4,  deshake:.9, face:.5, mesh:1.8, detail:1,
-             contrast:2.6, dotsize:0.9    },
+             contrast:2.6, dotsize:0.9, bwarp:9, smear:0.35, bhue:0.8, bgain:1.4, bspeed:0.45     },
   silk:    { feedback:.90, zoom:1.001, spin:.02, drift:.08, warp:9,
              chroma:5,  glow:0.65,  hue:0.08, sat:0.7,  particles:3000, trail:.85,
              thresh:.06, edge:1.0, body:.35, bleed:.07, smooth:0.24,
              speed:.30, deshake:.9, face:.9, mesh:.8, detail:2,
-             contrast:1.2, dotsize:1.2    },
+             contrast:1.2, dotsize:1.2, bwarp:14, smear:0.55, bhue:0.8, bgain:1.2, bspeed:0.35     },
   ghost:   { feedback:.95, zoom:1.000, spin:0,   drift:.05, warp:6,
              chroma:3,  glow:0.45, hue:0.05, sat:0.35,  particles:2200, trail:.95,
              thresh:.07, edge:1.5, body:.28, bleed:.04, smooth:0.18,
              speed:.22, deshake:.95, face:.8, mesh:.6, detail:2.5,
-             contrast:.9, dotsize:0.8    },
+             contrast:.9, dotsize:0.8, bwarp:18, smear:0.75, bhue:0.5, bgain:1.0, bspeed:0.25     },
   storm:   { feedback:.88, zoom:1.004, spin:.18, drift:.5,  warp:44,
              chroma:16, glow:0.85, hue:0.35, sat:1,   particles:4000, trail:.6,
              thresh:.04, edge:.8,  body:.55, bleed:.08, smooth:0.45,
              speed:.9,  deshake:.6, face:.6, mesh:.7, detail:2,
-             contrast:1.0, dotsize:1.4    },
+             contrast:1.0, dotsize:1.4, bwarp:24, smear:0.85, bhue:2.2, bgain:1.7, bspeed:1.2     },
 };
 
 
@@ -249,7 +259,7 @@ var PRESETS = {
 
 var mirror = true, useParticles = true, useMesh = false, useMask = false;
 var region = 1;   // 0 inside you, 1 outside you, 2 both
-var mode = 0;     // 0 flow, 1 dots, 2 mesh only, 3 dots + mesh
+var mode = 0;     // 0 flow, 1 dots, 2 mesh, 3 both, 4 bloom
 var blend = "screen";   // screen keeps hue, lighter goes white
 
 /* ---------- build the sliders ---------- */
@@ -345,9 +355,9 @@ toggle("tMask", function () { return useMask; },
 
 (function () {
   var el = document.getElementById("tMode");
-  var names = ["FLOW", "DOTS", "MESH", "BOTH"];
+  var names = ["FLOW", "DOTS", "MESH", "BOTH", "BLOOM"];
   el.addEventListener("click", function () {
-    mode = (mode + 1) % 4;
+    mode = (mode + 1) % 5;
     el.innerHTML = "MODE&nbsp;" + names[mode];
     if (mode > 0 && !useMask) {
       useMask = true;
@@ -991,6 +1001,99 @@ function dot(nx, ny, nz) {
   dotCtx.fill();
 }
 
+/* ---------- bloom ----------
+   a different render path entirely: no lines. the person mask is blurred to
+   a soft scalar field, warped by a drifting noise field, smeared vertically,
+   and remapped through a thermal palette. built at low resolution as raw
+   pixels and upscaled, which gives the blur for free. */
+var BW = 96, BH = 170;
+var bloomCv = document.createElement("canvas");
+bloomCv.width = BW; bloomCv.height = BH;
+var bctx2 = bloomCv.getContext("2d");
+var bloomImg = bctx2.createImageData(BW, BH);
+var bloomF = new Float32Array(BW * BH);
+var bloomT = new Float32Array(BW * BH);
+
+/* value noise: a few sines at different scales. cheap, and smooth enough
+   that the warp reads as fluid rather than granular. */
+function noise2(x, y, t) {
+  return (Math.sin(x * 0.11 + t * 0.7) * Math.cos(y * 0.09 - t * 0.5) +
+          Math.sin(x * 0.23 - y * 0.17 + t * 1.1) * 0.6 +
+          Math.sin(y * 0.31 + t * 0.9) * 0.4) / 2;
+}
+
+/* the thermal ramp. deep blue through violet and hot pink into orange,
+   which is the palette the reference is cycling through. */
+function thermal(v, shift, out) {
+  v = Math.max(0, Math.min(1, v));
+  var p = (v + shift) % 1;
+  var stops = [
+    [26, 32, 120], [58, 42, 210], [122, 66, 232], [214, 92, 200],
+    [255, 128, 150], [255, 176, 104], [252, 226, 190], [26, 32, 120],
+  ];
+  var f = p * (stops.length - 1);
+  var i = f | 0, k = f - i;
+  var a = stops[i], b = stops[i + 1] || stops[0];
+  out[0] = a[0] + (b[0] - a[0]) * k;
+  out[1] = a[1] + (b[1] - a[1]) * k;
+  out[2] = a[2] + (b[2] - a[2]) * k;
+}
+
+var _rgb = [0, 0, 0];
+
+function drawBloom(tsec) {
+  // 1. the mask as a soft field, warped by drifting noise
+  for (var y = 0; y < BH; y++) {
+    for (var x = 0; x < BW; x++) {
+      var n = noise2(x, y, tsec * P.bspeed);
+      var u = (x + n * P.bwarp) / BW;
+      var v = (y + n * P.bwarp * 0.6) / BH;
+      var c = coverAt(u, v);
+      bloomF[y * BW + x] = c;
+    }
+  }
+  // 2. blur it wide. the subject has to melt into the ground.
+  var R = 4;
+  for (var pass = 0; pass < 3; pass++) {
+    for (var y2 = 0; y2 < BH; y2++) {
+      var b2 = y2 * BW;
+      for (var x2 = 0; x2 < BW; x2++) {
+        var sm = 0, cn = 0;
+        for (var k2 = -R; k2 <= R; k2++) {
+          var xx = x2 + k2;
+          if (xx < 0 || xx >= BW) continue;
+          sm += bloomF[b2 + xx]; cn++;
+        }
+        bloomT[b2 + x2] = sm / cn;
+      }
+    }
+    for (var x3 = 0; x3 < BW; x3++) {
+      for (var y3 = 0; y3 < BH; y3++) {
+        var sm2 = 0, cn2 = 0;
+        // taller vertical kernel: this is the slit-scan smear
+        var RV = Math.round(R * (1 + P.smear * 3));
+        for (var k3 = -RV; k3 <= RV; k3++) {
+          var yy = y3 + k3;
+          if (yy < 0 || yy >= BH) continue;
+          sm2 += bloomT[yy * BW + x3]; cn2++;
+        }
+        bloomF[y3 * BW + x3] = sm2 / cn2;
+      }
+    }
+  }
+  // 3. remap through the palette
+  var d = bloomImg.data;
+  var shift = (tsec * P.bhue * 0.09) % 1;
+  for (var i2 = 0; i2 < bloomF.length; i2++) {
+    var vv = bloomF[i2] * P.bgain +
+             noise2((i2 % BW) * 0.7, (i2 / BW | 0) * 0.7, tsec * 0.3) * 0.10;
+    thermal(vv, shift, _rgb);
+    var o = i2 * 4;
+    d[o] = _rgb[0]; d[o + 1] = _rgb[1]; d[o + 2] = _rgb[2]; d[o + 3] = 255;
+  }
+  bctx2.putImageData(bloomImg, 0, 0);
+}
+
 /* ---------- streamline tracers ----------
    each tracer walks along the contour field leaving a thin trail, then
    respawns. thousands of short curves following the same field is what
@@ -1060,6 +1163,34 @@ function frame(t) {
   if (useMask && segReady) { updateFace(t); updateMask(t); }
 
   hue += P.hue * dt * 22;
+
+  /* BLOOM owns the whole frame: no feedback, no streamlines, no rim. it is
+     an image, not an accumulation, so it is drawn straight and returns. */
+  if (mode === 4) {
+    var cwB = view.width, chB = view.height;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
+    drawBloom(t / 1000);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    if (mirror) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.imageSmoothingEnabled = true;
+    var crB = coverRect();
+    // drawn a few times at slightly different vertical scales, which is
+    // what produces the columnar bleed above and below the figure
+    var layers = 1 + Math.round(P.smear * 3);
+    for (var li = 0; li < layers; li++) {
+      var f3 = li / Math.max(1, layers);
+      ctx.globalAlpha = li === 0 ? 1 : 0.5 * (1 - f3);
+      var ext = f3 * P.smear * H * 0.5;
+      ctx.drawImage(bloomCv, crB.x, crB.y - ext,
+                    crB.w, crB.h + ext * 2);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
+    return;
+  }
 
   var cw = view.width, chh = view.height;
 
