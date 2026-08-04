@@ -269,7 +269,7 @@ var PRESETS = {
 
 var mirror = true, useParticles = true, useMesh = false, useMask = false;
 var region = 1;   // 0 inside you, 1 outside you, 2 both
-var mode = 0;     // 0 flow, 1 dots, 2 mesh, 3 both, 4 bloom
+var mode = 0;     // 0 flow, 1 dots, 2 mesh, 3 both, 4 bloom, 5 depth
 var blend = "screen";   // screen keeps hue, lighter goes white
 
 /* ---------- build the sliders ---------- */
@@ -365,11 +365,13 @@ toggle("tMask", function () { return useMask; },
 
 (function () {
   var el = document.getElementById("tMode");
-  var names = ["FLOW", "DOTS", "MESH", "BOTH", "BLOOM"];
+  var names = ["FLOW", "DOTS", "MESH", "BOTH", "BLOOM", "DEPTH"];
   el.addEventListener("click", function () {
-    mode = (mode + 1) % 5;
+    mode = (mode + 1) % 6;
     el.innerHTML = "MODE&nbsp;" + names[mode];
-    if (mode > 0 && !useMask) {
+    if (mode === 5 && !depthTried) loadDepth();
+    if (mode === 5 && depthReady) depthLoop();
+    if (mode > 0 && mode < 5 && !useMask) {
       useMask = true;
       var m = document.getElementById("tMask");
       m.classList.add("on");
@@ -1071,6 +1073,120 @@ function dot(nx, ny, nz) {
   dotCtx.fill();
 }
 
+/* ---------- monocular depth ----------
+   Depth Anything V2 Small via transformers.js. this is a neural network
+   inferring depth from an ordinary colour image — no depth sensor is
+   involved, and none is reachable from Safari. it covers the whole frame
+   including the body and the room, unlike the face mesh which is accurate
+   but only 468 points on a face.
+
+   it is slow: hundreds of milliseconds per frame. so it runs in its own
+   loop, continuously, and the renderer always uses the most recent result.
+   the depth lags when you move, which is the cost of dense depth here. */
+var depthPipe = null, depthReady = false, depthTried = false;
+var depthBusy = false, depthW = 0, depthH = 0;
+var depthA = null, depthB = null, depthMix = 0;
+var depthCv = document.createElement("canvas");
+var dcx = depthCv.getContext("2d", { willReadFrequently: true });
+var depthFPS = 0, depthLast = 0;
+
+function loadDepth() {
+  depthTried = true;
+  var el = document.getElementById("tMode");
+  var was = el.textContent;
+  el.textContent = "LOADING…";
+  import("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.5.1")
+    .then(function (T) {
+      T.env.allowLocalModels = false;
+      // webgpu where available, wasm otherwise. q8 keeps the download and
+      // the memory down at some cost in fine detail.
+      var opts = { dtype: "q8" };
+      if (navigator.gpu) opts.device = "webgpu";
+      return T.pipeline("depth-estimation",
+                        "onnx-community/depth-anything-v2-small", opts);
+    })
+    .then(function (pipe) {
+      depthPipe = pipe; depthReady = true;
+      el.textContent = was;
+      depthLoop();
+    })
+    .catch(function (e) {
+      depthReady = false;
+      el.textContent = was;
+      errEl.textContent = "Depth model unavailable — " +
+        String(e && e.message ? e.message : e).slice(0, 60);
+      setTimeout(function () { errEl.textContent = ""; }, 5000);
+    });
+}
+
+/* its own loop, decoupled from the render */
+function depthLoop() {
+  if (!depthReady || !depthPipe) return;
+  if (mode !== 5 || depthBusy || !cam.videoWidth) {
+    setTimeout(depthLoop, 120);
+    return;
+  }
+  depthBusy = true;
+  var IW = 252, IH = Math.round(252 * cam.videoHeight / cam.videoWidth);
+  if (depthCv.width !== IW || depthCv.height !== IH) {
+    depthCv.width = IW; depthCv.height = IH;
+  }
+  dcx.drawImage(cam, 0, 0, IW, IH);
+  var t0 = performance.now();
+  depthPipe(depthCv.toDataURL("image/jpeg", 0.8)).then(function (res) {
+    var img = res && res.depth;
+    if (img && img.data) {
+      var w = img.width, h = img.height;
+      if (!depthA || depthW !== w || depthH !== h) {
+        depthW = w; depthH = h;
+        depthA = new Float32Array(w * h);
+        depthB = new Float32Array(w * h);
+      } else {
+        depthB.set(depthA);
+      }
+      // normalise: the model returns relative depth with an arbitrary range
+      var ch = img.channels || (img.data.length / (w * h));
+      var lo = 1e9, hi = -1e9;
+      for (var i = 0; i < w * h; i++) {
+        var v = img.data[i * ch];
+        if (v < lo) lo = v;
+        if (v > hi) hi = v;
+      }
+      var span = Math.max(1, hi - lo);
+      for (var j = 0; j < w * h; j++) {
+        depthA[j] = (img.data[j * ch] - lo) / span;
+      }
+      depthMix = 0;
+      depthFPS = 1000 / Math.max(1, performance.now() - t0);
+    }
+    depthBusy = false;
+    setTimeout(depthLoop, 0);
+  }).catch(function () {
+    depthBusy = false;
+    setTimeout(depthLoop, 400);
+  });
+}
+
+function depthAt(u, v) {
+  if (!depthA) return 0;
+  var x = u * depthW - 0.5, y = v * depthH - 0.5;
+  x = x < 0 ? 0 : x > depthW - 1.001 ? depthW - 1.001 : x;
+  y = y < 0 ? 0 : y > depthH - 1.001 ? depthH - 1.001 : y;
+  var x0 = x | 0, y0 = y | 0, ax = x - x0, ay = y - y0;
+  var x1 = x0 + 1, y1 = y0 + 1;
+  var r0 = y0 * depthW, r1 = y1 * depthW;
+  var a = depthA[r0 + x0] * (1 - ax) * (1 - ay) +
+          depthA[r0 + x1] * ax * (1 - ay) +
+          depthA[r1 + x0] * (1 - ax) * ay +
+          depthA[r1 + x1] * ax * ay;
+  if (!depthB || depthMix >= 1) return a;
+  var b = depthB[r0 + x0] * (1 - ax) * (1 - ay) +
+          depthB[r0 + x1] * ax * (1 - ay) +
+          depthB[r1 + x0] * (1 - ax) * ay +
+          depthB[r1 + x1] * ax * ay;
+  return b + (a - b) * depthMix;   // cross-fade between inferences
+}
+
 /* ---------- bloom ----------
    a different render path entirely: no lines. the person mask is blurred to
    a soft scalar field, warped by a drifting noise field, smeared vertically,
@@ -1384,6 +1500,65 @@ function frame(t) {
 
   /* BLOOM owns the whole frame: no feedback, no streamlines, no rim. it is
      an image, not an accumulation, so it is drawn straight and returns. */
+  if (mode === 5) {
+    if (depthMix < 1) depthMix = Math.min(1, depthMix + dt * 3.5);
+    var ow5 = Math.max(1, Math.round(W * P.bres));
+    var oh5 = Math.max(1, Math.round(H * P.bres));
+    if (ow5 !== outW || oh5 !== outH) {
+      outW = ow5; outH = oh5;
+      outCv.width = ow5; outCv.height = oh5;
+      outImg = octx.createImageData(ow5, oh5);
+    }
+    if (depthA) {
+      var pal5 = PALETTES[P.palette | 0] || PALETTES[0];
+      var d5 = outImg.data, o5 = 0;
+      var sh5 = (t / 1000 * P.bhue * 0.05) % 1;
+      for (var y5 = 0; y5 < oh5; y5++) {
+        var v5 = y5 / oh5;
+        for (var x5 = 0; x5 < ow5; x5++) {
+          var val5 = depthAt(x5 / ow5, v5) * P.bgain;
+          val5 += (((x5 * 7 + y5 * 13) & 15) / 15 - 0.5) * 0.012;
+          if (sh5) val5 = (val5 + sh5) % 1;
+          paletteAt(val5, pal5, _rgb);
+          d5[o5] = _rgb[0]; d5[o5 + 1] = _rgb[1];
+          d5[o5 + 2] = _rgb[2]; d5[o5 + 3] = 255;
+          o5 += 4;
+        }
+      }
+      octx.putImageData(outImg, 0, 0);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#07060B";
+    ctx.fillRect(0, 0, view.width, view.height);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    if (mirror) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+    ctx.imageSmoothingEnabled = true;
+    if (depthA) {
+      var lay5 = 1 + Math.round(P.smear * 3);
+      for (var li5 = 0; li5 < lay5; li5++) {
+        var f5 = li5 / Math.max(1, lay5);
+        ctx.globalAlpha = li5 === 0 ? 1 : 0.45 * (1 - f5);
+        var ex5 = f5 * P.smear * H * 0.4;
+        ctx.drawImage(outCv, 0, -ex5, W, H + ex5 * 2);
+      }
+      ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = "rgba(237,233,245,0.6)";
+      ctx.font = "600 13px -apple-system, sans-serif";
+      ctx.textAlign = "center";
+      ctx.save();
+      if (mirror) { ctx.translate(W, 0); ctx.scale(-1, 1); }
+      ctx.fillText(depthTried ? "loading depth model…" : "starting…",
+                   W / 2, H / 2);
+      ctx.restore();
+    }
+    ctx.restore();
+    return;
+  }
+
   if (mode === 4) {
     // the shading wants a fresh frame; the local-contrast pass is for the
     // streamlines and fights the softness here

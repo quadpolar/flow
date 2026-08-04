@@ -55,37 +55,26 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 23 — why it read as low resolution
+## Build 24 — real depth
 
-The blur was not the problem. Blurry and low-resolution are independent: a
-blur on a large image is soft but every pixel is uniquely computed. Three
-things were making it undersampled rather than merely soft.
+A sixth mode. Depth Anything V2 Small, loaded from a CDN through
+transformers.js, inferring dense per-pixel depth from the colour image.
 
-**Colour was applied before upscaling.** The field was mapped to RGB at
-160x284 and then scaled 2.4x to the screen, so every boundary between palette
-bands was smeared across two or three screen pixels, and the in-between
-values were RGB interpolations belonging to neither stop. The palette lookup
-now happens per output pixel at CSS resolution, 390x844, while the field
-stays small because it is genuinely low frequency. That is the crisp-and-soft
-combination.
+To be exact about what this is: it is a neural network predicting depth from
+an ordinary camera frame. No depth sensor is involved. iOS does not expose
+TrueDepth to Safari and no permission unlocks it — that requires a native
+app. This is the same category as the face mesh z, both predictions from
+colour; the difference is coverage. The face mesh gives 468 accurate points
+on a face. This gives every pixel in the frame, including the body and the
+room, at lower accuracy.
 
-**No dithering.** Large smooth gradients band visibly in 8 bits. A small
-ordered offset before quantisation breaks the contours.
+It is slow — hundreds of milliseconds per inference — so it runs in its own
+loop and the renderer always uses the most recent result, cross-fading
+between successive inferences over about a third of a second. The visuals
+stay at full frame rate; the depth lags when you move. That lag is the cost
+of dense depth in a browser.
 
-**Fake depth.** The mask was flat inside, so there was no volume to read. A
-pyramid of successively halved and blurred copies, summed back, gives a wide
-smooth falloff from the silhouette edge — high deep inside the body, falling
-away at every boundary. Measured on a head-and-shoulders figure: 0.94 at the
-centre, 0.03 near the edge, 0.005 outside. Combined with luminance for
-surface detail, that reads as a depth map.
-
-**Palette.** Sampling the reference gives one saturated colour holding about
-a fifth of the frame and everything else between 0.22 and 0.44 saturation.
-The old ramp was seven stops all above 0.55 spanning the full hue circle,
-then cycled — a spectrum, not a palette. Four designed palettes replace it.
-
-**Cost.** The blur is now a running-sum box, two adds per output regardless
-of radius. The bilinear samplers were removed from the hot loops. A full
-bloom frame measures about 40ms in Node; Safari's JIT is usually faster on
-typed-array loops, and the **bloom detail** slider scales the output
-resolution if it needs to come down.
+- q8 quantisation to keep the download and memory down
+- webgpu where the browser offers it, wasm otherwise
+- if the model fails to load the mode says so and everything else carries on
+- the depth feeds the same per-pixel palette path built in build 23
