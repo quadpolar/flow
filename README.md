@@ -55,25 +55,32 @@ That finer detail broke contour tracking until the blur was replaced with a
 wide separable box blur — drift went 0.19 -> 0.108.
 
 
-## Build 21 — structure preserved
+## Build 22 — softening the interior only
 
-Two faults, and the second explains why build 20 changed nothing visible.
+Build 21 fixed the interior being erased, and overshot: at full sharpness the
+luminance resolves skin texture, which reads as a processed photograph rather
+than a form.
 
-**The warp was distorting the silhouette.** The noise offset was applied to
-every sample, including inside the subject, so the outline pulled away from
-the real shape. It now applies only where coverage is below half — the
-background is allowed to churn, the person is not. Default is 0, and every
-preset except GHOST and STORM sets it to 0.
+Softening it cannot be done with the existing blur, because that one shapes
+the silhouette — turning it up destroys the outline. The shading now gets its
+own blur with its own radius, applied after the silhouette blur and
+independent of it.
 
-**The blur was erasing the interior.** The luminance was folded into the
-field BEFORE the blur, so the same three passes that soften the edge were
-smoothing the body's shading away at the same rate. The form added in build
-20 was being destroyed immediately after it was created.
+Measured against a test luminance carrying both coarse facial structure
+(period about 39 cells) and fine skin texture (about 4 cells):
 
-The order is now: blur the coverage alone to get a soft silhouette, then
-multiply by luminance sampled fresh at full sharpness. The soft mask says
-WHERE the subject is; the sharp luminance says what it looks like.
+  soften 0   variation 116.1   everything, including texture
+  soften 1    98.1
+  soften 2    44.6             texture gone, features intact
+  soften 3    31.1             the default
+  soften 5    27.5
+  soften 8     0.1             features gone too
 
-Measured with fine stripe detail inside a test subject, walking a vertical
-line through the body: 126.5 sd variation survives to the output. Previously
-the blur flattened it.
+The local-contrast pass is also scaled to a quarter in bloom mode. It exists
+to sharpen fine detail for the streamlines, which is the opposite of what
+this mode wants.
+
+The background no longer carries the room's luminance at all — it was leaking
+shelves and furniture into the field.
+
+New slider: **bloom soften**.
